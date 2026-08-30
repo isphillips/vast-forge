@@ -1,0 +1,6 @@
+.env
+*.pem
+zscaler-root.crt
+__pycache__/
+*.pyc
+*.pyo
