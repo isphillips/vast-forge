@@ -101,4 +101,5 @@ Expose it to `facet-generate` with a tunnel (Cloudflare Tunnel / Tailscale) and 
 ## Notes
 - **Sync now, async later:** `/generate` blocks ~30–60 s (warm). If cold starts outlast the edge-function
   timeout, add a job queue (`/generate` → id, `/result/<id>` poll) and push "facet ready" — see the plan.
-- **Weights baked in** → the image is large (10–20 GB) but nodes boot warm. First registry push is slow.
+- **Weights download at runtime** (not baked into the image — baking the 4B model overruns builder disk). A
+  cold node's first request pays the download; mount a persistent Vast volume at `/models` to keep it warm.

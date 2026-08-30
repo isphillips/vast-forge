@@ -44,10 +44,12 @@ RUN git clone https://github.com/microsoft/TRELLIS.2.git trellis2 \
     && bash setup.sh --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm \
     || echo "!! TRELLIS.2 setup returned nonzero — run its setup.sh manually + re-pin; see README (conda caveat)."
 
-# Pre-download the TRELLIS 2 weights INTO the image so a cold Vast node boots warm instead of pulling ~GBs on
-# first request. (Fill the exact model id in download_models.py.)
-COPY download_models.py server.py ./
-RUN python3 download_models.py || echo "!! weight pre-download skipped — set the model id in download_models.py"
+# Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
+# the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the
+# Vast node's larger disk). Trade: a cold node's FIRST request pays the weight download. To make cold-starts warm
+# again later, mount a persistent Vast volume at /models so the download survives worker restarts, or pre-download
+# with download_models.py on a builder that has the disk headroom.
+COPY server.py ./
 
 EXPOSE 8000
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]
