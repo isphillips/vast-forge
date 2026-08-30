@@ -66,15 +66,18 @@ RUN pip3 install --no-cache-dir flash-attn==2.7.3
 
 # The from-source CUDA extensions, each exactly as setup.sh installs it. `--no-build-isolation` builds them against
 # the torch already in this image; TORCH_CUDA_ARCH_LIST drives arch selection so no GPU is needed to COMPILE.
+# KEEP the cloned sources under /tmp/ext (no `rm`): nvdiffrast installs in-place and JIT-compiles its CUDA plugin
+# from the source tree at runtime, so deleting it makes `import nvdiffrast` fail (find_spec → None). The extra
+# image size is cheap next to a silently-broken extension; the others are copied into site-packages but kept too.
 # Order matters for the import check below: flexgemm before o-voxel, since `import o_voxel` imports flex_gemm.
 RUN git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/ext/nvdiffrast \
-    && pip3 install --no-cache-dir /tmp/ext/nvdiffrast --no-build-isolation && rm -rf /tmp/ext/nvdiffrast
+    && pip3 install --no-cache-dir /tmp/ext/nvdiffrast --no-build-isolation
 RUN git clone -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git /tmp/ext/nvdiffrec \
-    && pip3 install --no-cache-dir /tmp/ext/nvdiffrec --no-build-isolation && rm -rf /tmp/ext/nvdiffrec
+    && pip3 install --no-cache-dir /tmp/ext/nvdiffrec --no-build-isolation
 RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/ext/CuMesh \
-    && pip3 install --no-cache-dir /tmp/ext/CuMesh --no-build-isolation && rm -rf /tmp/ext/CuMesh
+    && pip3 install --no-cache-dir /tmp/ext/CuMesh --no-build-isolation
 RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/ext/FlexGEMM \
-    && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation && rm -rf /tmp/ext/FlexGEMM
+    && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation
 RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 
 # The server imports trellis2 in-place from the cloned repo.
