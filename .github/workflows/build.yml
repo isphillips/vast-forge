@@ -49,3 +49,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/vast-forge:latest
             ghcr.io/${{ github.repository_owner }}/vast-forge:${{ github.sha }}
+          # Reuse the expensive compile layers (torch, flash-attn, the CUDA extensions) across pushes, so a change
+          # near the end of the Dockerfile — or to server.py — doesn't recompile the whole stack from scratch.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

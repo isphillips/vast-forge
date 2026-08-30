@@ -80,10 +80,12 @@ RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 # The server imports trellis2 in-place from the cloned repo.
 ENV PYTHONPATH="/app/trellis2"
 
-# Fail the build LOUDLY if the packages aren't importable — catches a missing dep/extension at build time instead
-# of a 500 on the first /generate. `import o_voxel` transitively exercises the whole chain we fought through
-# (flex_gemm→triton, trimesh, plyfile, cv2, zstandard); flash_attn confirms the compiled attention kernel loaded.
-RUN python3 -c "import trellis2, o_voxel, flash_attn; print('trellis2 + o_voxel + flash_attn import OK')"
+# Build-time sanity check WITHOUT a GPU. Note we can't fully `import o_voxel` here: it pulls flex_gemm's triton
+# autotuner, which initializes a GPU driver at import ("RuntimeError: 0 active drivers" on a GPU-less builder).
+# So we (a) assert the GPU-bound packages are INSTALLED via find_spec — which locates them without executing their
+# __init__, catching a silent pip failure — and (b) fully import the pure-Python deps to catch a half-broken one.
+# The real end-to-end import happens at runtime on the GPU node (first /generate).
+RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn','nvdiffrast'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
 
 # Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
 # the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the
