@@ -4,7 +4,7 @@
 # Build:  docker build -t vast-forge:1 .
 # Run:    docker run --gpus all -p 8000:8000 --env-file .env vast-forge:1
 
-# DEVEL base (not runtime): TRELLIS.2's setup.sh COMPILES CUDA extensions (flash-attn, nvdiffrast, cumesh, …),
+# DEVEL base (not runtime): we COMPILE TRELLIS.2's CUDA extensions (flash-attn, nvdiffrast, cumesh, o-voxel, …),
 # which need nvcc + CUDA headers — only the devel image has them. (Bigger final image; a multi-stage devel→runtime
 # build would slim it later.)
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
@@ -41,31 +41,49 @@ RUN pip3 install --no-cache-dir torch==2.6.0 torchvision==0.21.0 --index-url htt
 # plyfile isn't in --basic's list but o_voxel imports it; gradio/pillow-simd are omitted (demo-only / build-flaky).
 RUN pip3 install --no-cache-dir \
       imageio imageio-ffmpeg tqdm easydict opencv-python-headless trimesh transformers tensorboard \
-      pandas lpips zstandard utils3d kornia timm plyfile
+      pandas lpips zstandard kornia timm plyfile \
+ && pip3 install --no-cache-dir \
+      "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
+# utils3d MUST be this exact commit (what setup.sh installs) — the `utils3d` on PyPI is a different, incompatible
+# package. gradio/pillow-simd from --basic are omitted (demo-only / build-flaky); plyfile added (o_voxel imports it).
 
 # Service deps for our FastAPI wrapper (everything EXCEPT the model itself).
 RUN pip3 install --no-cache-dir \
       fastapi "uvicorn[standard]" pydantic boto3 pillow requests numpy huggingface_hub
 
-# ── TRELLIS.2 ─────────────────────────────────────────────────────────────────────────────────────────────
-# github.com/microsoft/TRELLIS.2 — its setup.sh pulls the CUDA extensions (flash-attn, nvdiffrast/nvdiffrec,
-# cumesh, o_voxel, flexgemm) and pip-installs the `trellis2` + `o_voxel` packages the server imports.
-# NOTE: the repo's setup.sh is written around conda + `--new-env`; in Docker we install into the system python
-# (no --new-env). If setup.sh hard-requires conda, switch this base to a miniconda image and activate the env in
-# CMD. Pin a specific commit for reproducible rebuilds.
-# --recursive is REQUIRED: o-voxel (and friends) are git submodules; without it setup.sh's `cp -r o-voxel` copies
-# an empty dir and pip silently installs nothing → "No module named 'o_voxel'" at runtime. No `|| echo` mask now,
-# so a real setup failure fails the build instead of shipping a broken image.
-RUN git clone --recursive https://github.com/microsoft/TRELLIS.2.git trellis2 \
-    && cd trellis2 \
-    && bash setup.sh --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm
+# ── TRELLIS.2 + its CUDA extensions ───────────────────────────────────────────────────────────────────────
+# We deliberately DO NOT run TRELLIS.2's setup.sh. It aborts on its very first step with "No supported GPU found"
+# (a bare `command -v nvidia-smi` check, no bypass flag) — and CI build runners have no GPU. That abort, swallowed
+# by the old `|| echo` mask, is why NOTHING (neither --basic nor any extension) ever installed. nvcc cross-compiles
+# for the arches in TORCH_CUDA_ARCH_LIST with no GPU present, so we run setup.sh's per-flag steps by hand instead.
+#
+# --recursive: o-voxel is a submodule of the repo (setup.sh's --o-voxel does `cp -r o-voxel`); it also pulls eigen.
+RUN git clone --recursive https://github.com/microsoft/TRELLIS.2.git trellis2
 
-# The server imports trellis2 in-place; make sure it's on the path even if setup.sh didn't pip-install it.
-ENV PYTHONPATH="/app/trellis2:${PYTHONPATH}"
+# flash-attn (setup.sh --flash-attn): pip selects a prebuilt wheel for torch2.6/cu124/cp310 when one exists;
+# otherwise it compiles (MAX_JOBS caps the RAM so the runner doesn't OOM).
+RUN pip3 install --no-cache-dir flash-attn==2.7.3
 
-# Fail the build LOUDLY if the model packages aren't importable — catches a missing extension at build time
-# instead of a 500 on the first /generate.
-RUN python3 -c "import trellis2, o_voxel; print('trellis2 + o_voxel import OK')"
+# The from-source CUDA extensions, each exactly as setup.sh installs it. `--no-build-isolation` builds them against
+# the torch already in this image; TORCH_CUDA_ARCH_LIST drives arch selection so no GPU is needed to COMPILE.
+# Order matters for the import check below: flexgemm before o-voxel, since `import o_voxel` imports flex_gemm.
+RUN git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/ext/nvdiffrast \
+    && pip3 install --no-cache-dir /tmp/ext/nvdiffrast --no-build-isolation && rm -rf /tmp/ext/nvdiffrast
+RUN git clone -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git /tmp/ext/nvdiffrec \
+    && pip3 install --no-cache-dir /tmp/ext/nvdiffrec --no-build-isolation && rm -rf /tmp/ext/nvdiffrec
+RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/ext/CuMesh \
+    && pip3 install --no-cache-dir /tmp/ext/CuMesh --no-build-isolation && rm -rf /tmp/ext/CuMesh
+RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/ext/FlexGEMM \
+    && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation && rm -rf /tmp/ext/FlexGEMM
+RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
+
+# The server imports trellis2 in-place from the cloned repo.
+ENV PYTHONPATH="/app/trellis2"
+
+# Fail the build LOUDLY if the packages aren't importable — catches a missing dep/extension at build time instead
+# of a 500 on the first /generate. `import o_voxel` transitively exercises the whole chain we fought through
+# (flex_gemm→triton, trimesh, plyfile, cv2, zstandard); flash_attn confirms the compiled attention kernel loaded.
+RUN python3 -c "import trellis2, o_voxel, flash_attn; print('trellis2 + o_voxel + flash_attn import OK')"
 
 # Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
 # the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the
