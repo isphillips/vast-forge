@@ -84,17 +84,18 @@ RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/ext/
     && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation
 RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 
-# The server imports trellis2 in-place from the cloned repo; utils3d is vendored the same way.
-ENV PYTHONPATH="/app/trellis2:/app/utils3d_src"
+# The server imports trellis2 in-place from the cloned repo; utils3d and nvdiffrast are vendored the same way.
+# nvdiffrast's `pip install` produces no find_spec-visible package (same setuptools quirk as utils3d) yet to_glb
+# imports it — so we add its kept source tree (/tmp/ext/nvdiffrast, not deleted above) to the path. Its CUDA plugin
+# still JIT-compiles from that tree at runtime on the GPU node.
+ENV PYTHONPATH="/app/trellis2:/app/utils3d_src:/tmp/ext/nvdiffrast"
 
 # Build-time sanity check WITHOUT a GPU. Note we can't fully `import o_voxel` here: it pulls flex_gemm's triton
 # autotuner, which initializes a GPU driver at import ("RuntimeError: 0 active drivers" on a GPU-less builder).
 # So we (a) assert the GPU-bound packages are INSTALLED via find_spec — which locates them without executing their
 # __init__, catching a silent pip failure — and (b) fully import the pure-Python deps to catch a half-broken one.
-# nvdiffrast is intentionally NOT asserted: its setup produces no find_spec-visible top-level package, AND it's off
-# our critical path — on the live box PIPE.run() succeeded and to_glb never touched it (o_voxel's chain is
-# flex_gemm/cv2/trimesh/plyfile/zstandard). If a runtime path ever needs it, the first /generate says so on the GPU.
-RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
+# nvdiffrast is now on PYTHONPATH (to_glb imports it), so find_spec can see it again — assert it too.
+RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn','nvdiffrast'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
 
 # Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
 # the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the
