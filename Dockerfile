@@ -70,10 +70,14 @@ RUN pip3 install --no-cache-dir flash-attn==2.7.3
 
 # The from-source CUDA extensions, each exactly as setup.sh installs it. `--no-build-isolation` builds them against
 # the torch already in this image; TORCH_CUDA_ARCH_LIST drives arch selection so no GPU is needed to COMPILE.
-# KEEP the cloned sources under /tmp/ext (no `rm`): nvdiffrast installs in-place and JIT-compiles its CUDA plugin
-# from the source tree at runtime, so deleting it makes `import nvdiffrast` fail (find_spec → None). The extra
-# image size is cheap next to a silently-broken extension; the others are copied into site-packages but kept too.
+# KEEP the cloned sources under /tmp/ext (no `rm`) — nvdiffrast in particular is imported from its source tree.
 # Order matters for the import check below: flexgemm before o-voxel, since `import o_voxel` imports flex_gemm.
+#
+# nvdiffrast is a three-part mess at this ref: (1) its packaging metadata is broken, so `pip install` builds a wheel
+# named UNKNOWN that installs ONLY the compiled `_nvdiffrast_c.so` (which nvdiffrast.torch imports) and NOT the
+# `nvdiffrast/` Python package; (2) so we get the package from the source tree via PYTHONPATH instead; (3) but that
+# package's __init__ reads its version from dist metadata (`version('nvdiffrast')`) which doesn't exist (dist is
+# named UNKNOWN) → crash, so we sed the version to a literal. All three are needed together. Validated live on GPU.
 RUN git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/ext/nvdiffrast \
     && pip3 install --no-cache-dir /tmp/ext/nvdiffrast --no-build-isolation
 RUN git clone -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git /tmp/ext/nvdiffrec \
@@ -84,18 +88,29 @@ RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/ext/
     && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation
 RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 
-# The server imports trellis2 in-place from the cloned repo; utils3d and nvdiffrast are vendored the same way.
-# nvdiffrast's `pip install` produces no find_spec-visible package (same setuptools quirk as utils3d) yet to_glb
-# imports it — so we add its kept source tree (/tmp/ext/nvdiffrast, not deleted above) to the path. Its CUDA plugin
-# still JIT-compiles from that tree at runtime on the GPU node.
+# Patch nvdiffrast's version line in a SEPARATE RUN so the expensive extension-compile layers above stay
+# cache-valid. Its __init__ reads `version('nvdiffrast')` from dist metadata that doesn't exist (the wheel
+# installed as UNKNOWN), which crashes at import — hardcode the version instead. See the block comment above.
+RUN sed -i 's/^__version__ = version(.*/__version__ = "0.3.3"/' /tmp/ext/nvdiffrast/nvdiffrast/__init__.py
+
+# TRELLIS.2-4B (~a year old) predates a transformers restructuring of DINOv3: its image feature extractor iterates
+# `self.model.layer`, but current transformers nests those blocks under `.encoder.layer` — so inference dies with
+# "'DINOv3ViTModel' object has no attribute 'layer'". This is upstream PR #148; apply it to the vendored source.
+# Separate RUN so the expensive extension-compile layers above stay cache-valid.
+RUN sed -i 's/self\.model\.layer)/self.model.encoder.layer)/' /app/trellis2/trellis2/modules/image_feature_extractor.py
+
+# trellis2, utils3d, and the nvdiffrast Python package are all imported from their source trees via PYTHONPATH.
+# (nvdiffrast's compiled _nvdiffrast_c.so lives in site-packages from the UNKNOWN wheel; only the .py package needs
+# this path. PYTHONPATH is searched before site-packages, so the patched source __init__ wins.)
 ENV PYTHONPATH="/app/trellis2:/app/utils3d_src:/tmp/ext/nvdiffrast"
 
 # Build-time sanity check WITHOUT a GPU. Note we can't fully `import o_voxel` here: it pulls flex_gemm's triton
 # autotuner, which initializes a GPU driver at import ("RuntimeError: 0 active drivers" on a GPU-less builder).
 # So we (a) assert the GPU-bound packages are INSTALLED via find_spec — which locates them without executing their
 # __init__, catching a silent pip failure — and (b) fully import the pure-Python deps to catch a half-broken one.
-# nvdiffrast is now on PYTHONPATH (to_glb imports it), so find_spec can see it again — assert it too.
-RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn','nvdiffrast'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
+# nvdiffrast needs BOTH checked: the .py package (from PYTHONPATH) and its compiled _nvdiffrast_c.so (site-packages).
+# If _nvdiffrast_c is missing, the GPU-less builder failed to compile it — better to fail here than at runtime.
+RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn','nvdiffrast','_nvdiffrast_c'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
 
 # Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
 # the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the

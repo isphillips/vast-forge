@@ -51,6 +51,10 @@ def _load_pipeline():
         return
     from trellis2.pipelines import Trellis2ImageTo3DPipeline
 
+    # from_pretrained ALSO pulls the GATED encoder facebook/dinov3-vitl16-pretrain-lvd1689m. That download 401s
+    # unless HF_TOKEN (a classic read token whose account has accepted the DINOv3 gate) is in the env — huggingface_hub
+    # reads it automatically. First load on a cold node downloads ~8-16 GB to HF_HOME=/models; mount a persistent
+    # volume there so it survives node restarts. See .env.example.
     PIPE = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
     PIPE.cuda()
 

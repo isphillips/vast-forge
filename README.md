@@ -59,8 +59,16 @@ docker push ghcr.io/<you>/vast-forge:1
 Create a Serverless endpoint pointing at `ghcr.io/<you>/vast-forge:1`:
 - **GPU:** RTX 3090 (24 GB) — TRELLIS 2 alone fits comfortably.
 - **Autoscaler:** min workers **0** (scale to zero), max 2–3.
-- **Env:** the same `R2_*` + `FORGE_TOKEN` as `.env`.
+- **Env:** the same `R2_*` + `FORGE_TOKEN` + **`HF_TOKEN`** as `.env`.
+- **Persistent volume mounted at `/models`** — so the ~8–16 GB of weights survive node moves instead of
+  re-downloading each cold start.
+- **Docker options:** `--dns 8.8.8.8` — some Vast nodes ship containers with a broken resolver (DNS lookups
+  time out → the image fetch / weight download / R2 upload all fail with name-resolution errors).
 - Copy the endpoint URL → that's `VAST_URL`.
+
+**Gated model, one-time:** TRELLIS.2-4B pulls `facebook/dinov3-vitl16-pretrain-lvd1689m`, a **gated** HF repo.
+Accept the gate on your HF account (may need manual approval — check Settings → Gated Repositories), use a
+**classic** read token as `HF_TOKEN`, and once the weights cache to `/models` you never touch the gate again.
 
 To **never cold-pull**, set min workers **1** and make the reserve worker **on-demand** (not interruptible) — ~$110/mo,
 the price of always-warm. See the plan artifacts for the full cost/cold-vs-warm breakdown.
