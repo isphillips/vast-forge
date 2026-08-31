@@ -13,6 +13,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/models \
     HUGGINGFACE_HUB_CACHE=/models \
+    # Reduce CUDA memory fragmentation on a long-lived warm worker (24 GB 3090 is tight for the 4B model + mesh
+    # decode; without this a later request can OOM in CuMesh.get_edges where earlier ones fit).
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     # Only compile CUDA kernels for the GPUs we deploy on (Ampere 8.0/8.6 incl. 3090, Ada 8.9 incl. L20/4090).
     # Add 7.5 for Turing (RTX 8000). Trims a very long compile and avoids building for arches you don't use.
     TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9" \
@@ -93,11 +96,12 @@ RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 # installed as UNKNOWN), which crashes at import — hardcode the version instead. See the block comment above.
 RUN sed -i 's/^__version__ = version(.*/__version__ = "0.3.3"/' /tmp/ext/nvdiffrast/nvdiffrast/__init__.py
 
-# TRELLIS.2-4B (~a year old) predates a transformers restructuring of DINOv3: its image feature extractor iterates
-# `self.model.layer`, but current transformers nests those blocks under `.encoder.layer` — so inference dies with
-# "'DINOv3ViTModel' object has no attribute 'layer'". This is upstream PR #148; apply it to the vendored source.
-# Separate RUN so the expensive extension-compile layers above stay cache-valid.
-RUN sed -i 's/self\.model\.layer)/self.model.encoder.layer)/' /app/trellis2/trellis2/modules/image_feature_extractor.py
+# TRELLIS.2-4B (~a year old) predates transformers' DINOv3 restructuring: its image feature extractor iterates
+# `self.model.layer`, but in transformers 5.16.1 `DINOv3ViTModel` puts its encoder under `self.model` (a
+# DINOv3ViTEncoder whose blocks are `.layer`) — so the blocks are at `self.model.model.layer`. Without this,
+# inference dies with "'DINOv3ViTModel' object has no attribute 'layer'". (Upstream PR #148 used the intermediate
+# `.encoder.layer`; 5.16.x moved it again.) Separate RUN so the extension-compile layers above stay cache-valid.
+RUN sed -i 's/self\.model\.layer)/self.model.model.layer)/' /app/trellis2/trellis2/modules/image_feature_extractor.py
 
 # trellis2, utils3d, and the nvdiffrast Python package are all imported from their source trees via PYTHONPATH.
 # (nvdiffrast's compiled _nvdiffrast_c.so lives in site-packages from the UNKNOWN wheel; only the .py package needs

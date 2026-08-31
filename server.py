@@ -64,32 +64,40 @@ def run_trellis(image) -> bytes:
     itself, so there's no separate trimesh pass (re-exporting would strip the WebP textures)."""
     import tempfile
 
+    import torch
     import o_voxel
 
     _load_pipeline()
-    mesh = PIPE.run(image)[0]
-    glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices,
-        faces=mesh.faces,
-        attr_volume=mesh.attrs,
-        coords=mesh.coords,
-        attr_layout=mesh.layout,
-        voxel_size=mesh.voxel_size,
-        aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=TARGET_FACES,   # mobile budget — repo default 1,000,000 is desktop-scale
-        texture_size=TEXTURE_SIZE,        # repo default 4096 → drop to 1024 for phones
-        remesh=True,                      # clean topology
-    )
-    path = tempfile.mktemp(suffix=".glb")
-    glb.export(path, extension_webp=True)  # WebP textures — the on-device loaders read EXT_texture_webp
+    # A long-lived warm worker fragments GPU memory across requests, so a later generation can OOM in the mesh
+    # decode (CuMesh.get_edges) on a 24 GB card where earlier ones fit. Free the previous run's cache first, and
+    # again in `finally` so this run's tensors are released promptly for the next request.
+    torch.cuda.empty_cache()
     try:
-        with open(path, "rb") as fh:
-            return fh.read()
-    finally:
+        mesh = PIPE.run(image)[0]
+        glb = o_voxel.postprocess.to_glb(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            attr_volume=mesh.attrs,
+            coords=mesh.coords,
+            attr_layout=mesh.layout,
+            voxel_size=mesh.voxel_size,
+            aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+            decimation_target=TARGET_FACES,   # mobile budget — repo default 1,000,000 is desktop-scale
+            texture_size=TEXTURE_SIZE,        # repo default 4096 → drop to 1024 for phones
+            remesh=True,                      # clean topology
+        )
+        path = tempfile.mktemp(suffix=".glb")
+        glb.export(path, extension_webp=True)  # WebP textures — the on-device loaders read EXT_texture_webp
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            with open(path, "rb") as fh:
+                return fh.read()
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    finally:
+        torch.cuda.empty_cache()
 
 
 def r2_put(key: str, data: bytes, content_type: str) -> str:
@@ -124,5 +132,8 @@ def generate(req: GenReq, authorization: str = Header(default="")):
     except HTTPException:
         raise
     except Exception as e:
-        # Surface a short reason; the edge function maps any failure to a friendly user message.
+        # Full traceback to stdout (→ container log) so a 500 is diagnosable without re-running; the HTTP body
+        # still carries only a short reason, which the edge function maps to a friendly user message.
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"generate failed: {e}")
