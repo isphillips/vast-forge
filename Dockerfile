@@ -41,11 +41,11 @@ RUN pip3 install --no-cache-dir torch==2.6.0 torchvision==0.21.0 --index-url htt
 # plyfile isn't in --basic's list but o_voxel imports it; gradio/pillow-simd are omitted (demo-only / build-flaky).
 RUN pip3 install --no-cache-dir \
       imageio imageio-ffmpeg tqdm easydict opencv-python-headless trimesh transformers tensorboard \
-      pandas lpips zstandard kornia timm plyfile \
- && pip3 install --no-cache-dir \
-      "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
-# utils3d MUST be this exact commit (what setup.sh installs) — the `utils3d` on PyPI is a different, incompatible
-# package. gradio/pillow-simd from --basic are omitted (demo-only / build-flaky); plyfile added (o_voxel imports it).
+      pandas lpips zstandard kornia timm plyfile moderngl scipy
+# gradio/pillow-simd from --basic are omitted (demo-only / build-flaky); plyfile added (o_voxel imports it).
+# moderngl + scipy are utils3d's runtime deps. utils3d itself is NOT pip-installed: its flat-layout pyproject has
+# no explicit package list, so modern setuptools auto-discovery installs NOTHING from `pip install git+…` yet still
+# exits 0 (→ `import utils3d` fails at runtime). We vendor the source onto PYTHONPATH below instead — same as trellis2.
 
 # Service deps for our FastAPI wrapper (everything EXCEPT the model itself).
 RUN pip3 install --no-cache-dir \
@@ -59,6 +59,10 @@ RUN pip3 install --no-cache-dir \
 #
 # --recursive: o-voxel is a submodule of the repo (setup.sh's --o-voxel does `cp -r o-voxel`); it also pulls eigen.
 RUN git clone --recursive https://github.com/microsoft/TRELLIS.2.git trellis2
+
+# utils3d — vendored on PYTHONPATH (pip discovery no-ops it, see base-deps note) at the exact commit TRELLIS.2 pins.
+RUN git clone https://github.com/EasternJournalist/utils3d.git utils3d_src \
+    && git -C utils3d_src checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # flash-attn (setup.sh --flash-attn): pip selects a prebuilt wheel for torch2.6/cu124/cp310 when one exists;
 # otherwise it compiles (MAX_JOBS caps the RAM so the runner doesn't OOM).
@@ -80,8 +84,8 @@ RUN git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/ext/
     && pip3 install --no-cache-dir /tmp/ext/FlexGEMM --no-build-isolation
 RUN pip3 install --no-cache-dir ./trellis2/o-voxel --no-build-isolation
 
-# The server imports trellis2 in-place from the cloned repo.
-ENV PYTHONPATH="/app/trellis2"
+# The server imports trellis2 in-place from the cloned repo; utils3d is vendored the same way.
+ENV PYTHONPATH="/app/trellis2:/app/utils3d_src"
 
 # Build-time sanity check WITHOUT a GPU. Note we can't fully `import o_voxel` here: it pulls flex_gemm's triton
 # autotuner, which initializes a GPU driver at import ("RuntimeError: 0 active drivers" on a GPU-less builder).
