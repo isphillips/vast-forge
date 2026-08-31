@@ -87,8 +87,10 @@ ENV PYTHONPATH="/app/trellis2"
 # autotuner, which initializes a GPU driver at import ("RuntimeError: 0 active drivers" on a GPU-less builder).
 # So we (a) assert the GPU-bound packages are INSTALLED via find_spec — which locates them without executing their
 # __init__, catching a silent pip failure — and (b) fully import the pure-Python deps to catch a half-broken one.
-# The real end-to-end import happens at runtime on the GPU node (first /generate).
-RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn','nvdiffrast'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
+# nvdiffrast is intentionally NOT asserted: its setup produces no find_spec-visible top-level package, AND it's off
+# our critical path — on the live box PIPE.run() succeeded and to_glb never touched it (o_voxel's chain is
+# flex_gemm/cv2/trimesh/plyfile/zstandard). If a runtime path ever needs it, the first /generate says so on the GPU.
+RUN python3 -c "import importlib.util as u; missing=[m for m in ['trellis2','o_voxel','flex_gemm','flash_attn'] if u.find_spec(m) is None]; assert not missing, 'NOT INSTALLED: '+str(missing); import trimesh, plyfile, cv2, zstandard, kornia, timm, transformers, utils3d; print('build check OK: extensions installed + base deps import')"
 
 # Weights are NOT baked in — the 4B model is ~8-16 GB and buildkit needs ~2× that transiently, which overruns
 # the builder's disk. Instead they download on first use (server.py's from_pretrained → HF_HOME=/models on the
