@@ -111,3 +111,11 @@ Expose it to `facet-generate` with a tunnel (Cloudflare Tunnel / Tailscale) and 
   timeout, add a job queue (`/generate` → id, `/result/<id>` poll) and push "facet ready" — see the plan.
 - **Weights download at runtime** (not baked into the image — baking the 4B model overruns builder disk). A
   cold node's first request pays the download; mount a persistent Vast volume at `/models` to keep it warm.
+
+## Pull worker (dispatcher)
+
+Boxes don't need a reachable address. With `FORGE_CONTROL_URL` set (baked into the image), `worker.py` runs inside
+the server process and pulls jobs from the shared `facet_jobs` queue through the `forge-worker` edge function
+(authenticated with `FORGE_TOKEN`): heartbeat + claim, forge, hand back the GLB URL. Any number of boxes built from
+this image share the queue; the node id is the Vast instance id (`VAST_CONTAINERLABEL`). The `/ops/forge` console
+shows every node, its heartbeat and current job, and can start/stop managed instances (autoscaler, every minute).
