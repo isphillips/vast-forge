@@ -83,12 +83,17 @@ def run_trellis(tag, url):
 # ── Hunyuan3D side ──────────────────────────────────────────────────────────────────────────────────────────
 def run_hy_all(tags, views, res, target_faces):
     import torch
-    sys.path.insert(0, "/opt/hy/Hunyuan3D-2.1")
+    # same import layout as the repo's demo.py: both sub-packages on sys.path, cwd = repo root (config paths)
+    sys.path.insert(0, "/opt/hy/Hunyuan3D-2.1/hy3dshape")
+    sys.path.insert(0, "/opt/hy/Hunyuan3D-2.1/hy3dpaint")
     os.chdir("/opt/hy/Hunyuan3D-2.1")
+    sys.path.insert(0, "/opt/hy/Hunyuan3D-2.1")
+    from torchvision_fix import apply_fix                  # basicsr imports a module torchvision 0.20 removed
+    apply_fix()
     from hy3dshape.rembg import BackgroundRemover
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
     from hy3dshape import FaceReducer, FloaterRemover, DegenerateFaceRemover
-    from hy3dpaint.textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
+    from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
 
     stats = {}
     # 1) shape for every image, then free the shape model before the (bigger) paint model loads
@@ -127,14 +132,31 @@ def run_hy_all(tags, views, res, target_faces):
         torch.cuda.reset_peak_memory_stats()
         t0 = time.time()
         # the paint stage wants the ORIGINAL image (it cuts the background itself) and the shape mesh path
-        paint(f"{OUT}/{tag}_hy_shape.glb", image_path=f"{OUT}/{tag}.png", output_mesh_path=out)
+        # This repo version writes an OBJ (+MTL, albedo/metallic/roughness JPEGs) and converts to GLB with Blender's
+        # bpy, which has no py3.10 wheel; ask for the OBJ and convert with trimesh instead.
+        obj = f"{OUT}/{tag}_hy.obj"
+        # use_remesh=False: the pipeline's remesh is only a quadric decimation to a hard-coded 40k faces; the shape mesh
+        # is already FaceReducer'd to the forge's 120k budget, so keep it for parity with TRELLIS.
+        paint(f"{OUT}/{tag}_hy_shape.glb", image_path=f"{OUT}/{tag}.png", output_mesh_path=obj, save_glb=False,
+              use_remesh=False)
         secs = time.time() - t0
+        obj_to_glb(obj, out)
         stats.setdefault(tag, {})["hy_paint_s"] = round(secs)
         stats[tag]["hy_paint_peak_gb"] = round(torch.cuda.max_memory_allocated() / 2**30, 1)
         log(f"{tag}: HY paint {secs:.0f}s ({views} views @ {res}), peak {stats[tag]['hy_paint_peak_gb']} GB")
     del paint
     torch.cuda.empty_cache()
     return stats
+
+
+def obj_to_glb(obj_path, glb_path):
+    """Replaces hy3dpaint's Blender-based convert_obj_to_glb: OBJ + MTL (map_Kd albedo) -> GLB with baseColorTexture."""
+    try:
+        tm = trimesh.load(obj_path, force="mesh", process=False)
+        tm.export(glb_path)
+        log(f"obj_to_glb {os.path.basename(obj_path)}: {len(tm.faces)} faces -> {os.path.getsize(glb_path)/1e6:.1f} MB")
+    except Exception as e:  # noqa: BLE001
+        log(f"obj_to_glb FAILED for {obj_path}: {e}")
 
 
 # ── measurement (same numbers as the fidelity lab) ──────────────────────────────────────────────────────────
@@ -289,6 +311,12 @@ def main():
             _, secs = run_trellis(tag, url)
             if secs is not None:
                 stats[tag]["trellis_s"] = round(secs)
+    # TRELLIS timings from an earlier --skip-hy run (run_trellis returns no time when the GLB already exists)
+    prev = f"{OUT}/bake_stats_trellis.json"
+    if os.path.exists(prev):
+        for tag, d in json.load(open(prev)).items():
+            if tag in stats and "trellis_s" in d and "trellis_s" not in stats[tag]:
+                stats[tag]["trellis_s"] = d["trellis_s"]
     if not a.skip_hy:
         hy = run_hy_all(list(images), a.views, a.res, a.faces)
         for tag, d in hy.items():

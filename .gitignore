@@ -4,3 +4,4 @@ zscaler-root.crt
 __pycache__/
 *.pyc
 *.pyo
+bakeoff/bake/

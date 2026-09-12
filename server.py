@@ -46,6 +46,12 @@ REMESH_FALLBACKS = [int(x) for x in os.environ.get("FORGE_REMESH_FALLBACKS", "76
 # (see solidify.py). Radius in voxels; 0 turns it off and exports through the remesh ladder alone. Any failure in
 # the solidify path also falls back to the remesh ladder, so a job never dies because of it.
 SOLIDIFY_RADIUS = int(os.environ.get("FORGE_SOLIDIFY_RADIUS", "2"))
+# Engine switch (2026-09-12). "trellis" is this file's original path (the Dockerfile image); "hunyuan" routes every
+# job through engine_hunyuan.py (the Dockerfile.hunyuan image, which bakes FORGE_ENGINE=hunyuan). Same /generate and
+# pull-worker contract, same face and texture budgets, same R2 upload; only the image→GLB step differs. The bake-off
+# (bakeoff/HANDOFF.md) is why Hunyuan is the default going forward: closed single-piece meshes, ~150 s, 13.8 GB peak.
+ENGINE = os.environ.get("FORGE_ENGINE", "trellis").strip().lower()
+WARM = os.environ.get("FORGE_WARM", "0") == "1"      # load the engine at boot instead of on the first job
 
 s3 = boto3.client(
     "s3",
@@ -228,6 +234,49 @@ def run_trellis(image) -> bytes:
             torch.cuda.empty_cache()
 
 
+def run_hunyuan(image) -> bytes:
+    """PIL.Image -> GLB bytes via Hunyuan3D 2.1 (engine_hunyuan.py). Same GPU lock as run_trellis, so a pulled job
+    and a pushed one never share the card; the engine loads its two stages on first use (or at boot, FORGE_WARM)."""
+    import gc
+
+    import torch
+    import engine_hunyuan
+
+    with _GPU_LOCK:
+        torch.cuda.empty_cache()
+        try:
+            return engine_hunyuan.run(image)
+        finally:
+            gc.collect()
+            torch.cuda.empty_cache()
+
+
+def run_engine(image) -> bytes:
+    return run_hunyuan(image) if ENGINE == "hunyuan" else run_trellis(image)
+
+
+def model_loaded() -> bool:
+    if ENGINE == "hunyuan":
+        import engine_hunyuan
+        return engine_hunyuan.loaded()
+    return PIPE is not None
+
+
+def _warm():
+    """Boot-time load (FORGE_WARM=1): a cold node then pays the weight download + model load once, before its first
+    job, instead of inside it. Runs under the GPU lock so a job that arrives meanwhile simply queues behind it."""
+    try:
+        with _GPU_LOCK:
+            if ENGINE == "hunyuan":
+                import engine_hunyuan
+                engine_hunyuan.load()
+            else:
+                _load_pipeline()
+        print(f"[forge] {ENGINE} engine warm", flush=True)
+    except Exception as e:  # noqa: BLE001 — the first job will retry the load and surface the real error
+        print(f"[forge] warm-up failed ({type(e).__name__}: {str(e)[:160]}); loading on first job instead", flush=True)
+
+
 def r2_put(key: str, data: bytes, content_type: str) -> str:
     s3.put_object(Bucket=R2_BUCKET, Key=key, Body=data, ContentType=content_type)
     return f"{R2_PUBLIC_BASE}/{key}"
@@ -239,7 +288,7 @@ def forge_from_url(image_url: str) -> str:
     r = requests.get(image_url, timeout=30)
     r.raise_for_status()
     image = Image.open(io.BytesIO(r.content)).convert("RGB")
-    glb = run_trellis(image)
+    glb = run_engine(image)
     return r2_put(f"forge/{uuid.uuid4().hex}.glb", glb, "model/gltf-binary")
 
 
@@ -255,7 +304,10 @@ WORKER = None
 def _start_worker():
     global WORKER
     import worker
-    WORKER = worker.start(run_job=forge_from_url, model_loaded=lambda: PIPE is not None)
+    WORKER = worker.start(run_job=forge_from_url, model_loaded=model_loaded)
+    print(f"[forge] engine: {ENGINE}", flush=True)
+    if WARM:
+        threading.Thread(target=_warm, name="forge-warm", daemon=True).start()
 
 
 class GenReq(BaseModel):
@@ -266,7 +318,7 @@ class GenReq(BaseModel):
 def health():
     import torch
     return {
-        "ok": True, "cuda": torch.cuda.is_available(), "model_loaded": PIPE is not None,
+        "ok": True, "cuda": torch.cuda.is_available(), "model_loaded": model_loaded(), "engine": ENGINE,
         "node": WORKER.id if WORKER else None,
         "busy": bool(WORKER and WORKER.current),
         "jobs_done": WORKER.jobs_done if WORKER else 0,

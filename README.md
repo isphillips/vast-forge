@@ -11,6 +11,28 @@ GET  /health -> { ok, cuda, model_loaded }
 
 Pipeline inside: download image → **TRELLIS 2** → decimate to ~40k tris + baseColor GLB → upload to R2.
 
+## Engines: Hunyuan3D 2.1 (new default) and TRELLIS.2
+
+Two images, one server. `FORGE_ENGINE` picks the image→GLB step; everything else (`/generate`, the pull worker,
+R2 upload, the 120k-face and 1024-texture budgets) is shared.
+
+| | image | Dockerfile | engine | GHCR tag |
+|---|---|---|---|---|
+| **Hunyuan3D 2.1** | `Dockerfile.hunyuan` | torch 2.5.1 | `engine_hunyuan.py` | `ghcr.io/<owner>/vast-forge:hunyuan` |
+| TRELLIS.2 | `Dockerfile` | torch 2.6.0 | `server.run_trellis` | `ghcr.io/<owner>/vast-forge:latest` |
+
+Why the switch (bake-off 2026-09-12 on a 3090, `bakeoff/HANDOFF.md`): Hunyuan produced a single closed surface on
+all three test images (0 open edges, 1 piece) against 345–4,312 fragments from TRELLIS, in 151–169 s against
+245–410 s, peaking at 13.8 GB so the 24 GB card never needs TRELLIS's out-of-memory retry ladder. Its one failure
+mode is a wrong depth reading on frontal images (a mask once came out 3.9× deeper than wide); the engine measures
+depth/width after the shape stage and re-rolls the seed above `HY_MAX_DEPTH_RATIO` (3.0), at most
+`HY_SHAPE_RETRIES` (2) times. Both stages stay resident; the shape model is parked on the CPU while painting.
+
+Hunyuan weights (~10 GB `tencent/Hunyuan3D-2.1` + ~4.5 GB `facebook/dinov2-giant`) download on first use into
+`/models`, like TRELLIS's; with `FORGE_WARM=1` (the image default) that happens at boot rather than inside the
+first job. Build/push is `.github/workflows/build-hunyuan.yml` (push to `main` or `hunyuan`, or run it manually).
+To deploy, point the Vast template at the `:hunyuan` tag; nothing changes in the edge function or the app.
+
 ## Status: wired to the real TRELLIS.2 API
 
 `server.py` calls the actual [microsoft/TRELLIS.2](https://github.com/microsoft/TRELLIS.2) API — no code blanks:
