@@ -1,0 +1,102 @@
+# vast-forge — Hunyuan3D 2.1 image→3D service for Vidrip Facet Forge (FORGE_ENGINE=hunyuan).
+# Same /generate + pull-worker contract as the TRELLIS image (server.py, worker.py); only the engine differs.
+#
+# Why a second Dockerfile instead of a switch inside the TRELLIS one: Hunyuan wants torch 2.5.1 and its own set of
+# compiled extensions, TRELLIS's stack is ABI-bound to torch 2.6.0 — they can't share a python. Bake-off numbers and
+# the install pitfalls this file works around are in engine_hunyuan.py's docstring and bakeoff/HANDOFF.md.
+#
+# Build (CI, .github/workflows/build-hunyuan.yml):  docker build -f Dockerfile.hunyuan -t vast-forge:hunyuan .
+# Run:  docker run --gpus all -p 8000:8000 --env-file .env vast-forge:hunyuan
+
+# DEVEL base: custom_rasterizer (CUDA) and the mesh inpaint processor (C++/pybind11) are compiled here; nvcc
+# cross-compiles for TORCH_CUDA_ARCH_LIST, so no GPU is needed to build.
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/models \
+    HUGGINGFACE_HUB_CACHE=/models \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9" \
+    MAX_JOBS=4
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.10 python3-pip python3-dev build-essential ninja-build git wget ca-certificates \
+      libgl1 libglib2.0-0 libegl1 libgles2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# setuptools < 81: the paint stage imports pkg_resources, which newer setuptools removed (seen live: the paint
+# stage died with ModuleNotFoundError until pinned).
+RUN pip3 install --no-cache-dir --upgrade pip wheel "setuptools<81"
+
+# Torch pinned to what Hunyuan3D-2.1 targets (2.5.1 / cu124). The compiled extensions below are ABI-bound to it.
+RUN pip3 install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+
+# Hunyuan3D-2.1 at the commit the bake-off ran (2025-10-17). No conda, no submodules.
+RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git hy \
+    && git -C hy checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c
+
+# basicsr's setup.py imports torch, so an isolated build would download a second, current torch (multi-GB) and
+# then fail against it. Build it against the torch already here. Same for the two extensions further down.
+COPY requirements-hunyuan.txt ./
+RUN pip3 install --no-cache-dir numpy==1.24.4 pybind11==2.13.4 ninja==1.11.1.1 \
+    && pip3 install --no-cache-dir --no-build-isolation basicsr==1.4.2 \
+    && pip3 install --no-cache-dir -r requirements-hunyuan.txt
+
+# Service deps for the FastAPI wrapper (same as the TRELLIS image).
+RUN pip3 install --no-cache-dir fastapi "uvicorn[standard]" boto3 pillow requests
+
+# The two compiled pieces of the paint stage. custom_rasterizer is a torch CUDA extension (--no-build-isolation for
+# the same reason as basicsr); the mesh inpaint processor is the repo's compile_mesh_painter.sh with `python3`
+# spelled out (the base image has no `python`).
+RUN cd hy/hy3dpaint/custom_rasterizer && pip3 install --no-cache-dir --no-build-isolation -e .
+RUN cd hy/hy3dpaint/DifferentiableRenderer \
+    && c++ -O3 -Wall -shared -std=c++11 -fPIC $(python3 -m pybind11 --includes) mesh_inpaint_processor.cpp \
+       -o mesh_inpaint_processor$(python3-config --extension-suffix)
+
+# Small weights are baked (the big ones download on first use, see below): Real-ESRGAN x4 (64 MB) for the paint
+# upscaler, and rembg's u2net (176 MB) so the background cut never waits on a download. U2NET_HOME keeps the latter
+# inside the image rather than under a runtime volume.
+ENV U2NET_HOME=/app/u2net
+RUN mkdir -p hy/hy3dpaint/ckpt /app/u2net \
+    && wget -q https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth -P hy/hy3dpaint/ckpt \
+    && python3 -c "from rembg import new_session; new_session('u2net'); print('u2net cached')"
+
+# Build-time sanity check WITHOUT a GPU: the compiled extensions are present, and the full inference import chain
+# (shape + paint pipelines, with the torchvision shim applied first) imports cleanly.
+RUN python3 -c "import importlib.util as u, os, sys; \
+missing=[m for m in ['custom_rasterizer','basicsr','realesrgan','rembg','xatlas','pymeshlab','onnxruntime'] if u.find_spec(m) is None]; \
+assert not missing, 'NOT INSTALLED: '+str(missing); \
+os.chdir('/app/hy'); sys.path[:0]=['/app/hy','/app/hy/hy3dshape','/app/hy/hy3dpaint']; \
+from torchvision_fix import apply_fix; apply_fix(); \
+from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline; from hy3dshape import FaceReducer, FloaterRemover, DegenerateFaceRemover; \
+from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig; \
+import glob; assert glob.glob('/app/hy/hy3dpaint/DifferentiableRenderer/mesh_inpaint_processor*.so'), 'mesh_inpaint_processor not compiled'; \
+import setuptools, pkg_resources; print('build check OK: extensions compiled, pipelines import, setuptools', setuptools.__version__)"
+
+# Weights are NOT baked: tencent/Hunyuan3D-2.1 (~10 GB) + facebook/dinov2-giant (~4.5 GB) download on first use
+# into HF_HOME=/models. Mount a persistent Vast volume there so a node restart doesn't re-pull them.
+COPY server.py worker.py engine_hunyuan.py ./
+
+ENV FORGE_ENGINE=hunyuan \
+    HY_ROOT=/app/hy \
+    FORGE_VERSION=hunyuan-2.1 \
+    # Same budgets as the TRELLIS image: 120k triangles, 1024 texture (the paint bakes at 2048 and is downsampled).
+    TARGET_FACES=120000 \
+    TEXTURE_SIZE=1024 \
+    # Paint: 6 views at 512 measured at 13.8 GB peak on the 3090; 768 or 9 views cost more memory and time.
+    HY_VIEWS=6 \
+    HY_RES=512 \
+    # Depth sanity re-roll (engine_hunyuan._shape): a frontal image can be read as a body extruded behind the subject.
+    # 3.0 passes a real car (2.4) and catches the mask outlier (3.9); up to 2 re-rolls of ~85 s each.
+    HY_MAX_DEPTH_RATIO=3.0 \
+    HY_SHAPE_RETRIES=2 \
+    # Load both stages at boot so the first job doesn't pay the model load on top of the weight download.
+    FORGE_WARM=1
+# Pull worker: every box built from this image joins the shared job queue on boot (worker.py). Not a secret.
+ENV FORGE_CONTROL_URL=https://ltpscwticavqutbzrrjb.supabase.co/functions/v1/forge-worker
+
+EXPOSE 8000
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]

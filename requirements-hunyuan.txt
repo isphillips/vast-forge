@@ -1,0 +1,33 @@
+# Hunyuan3D-2.1 inference deps for vast-forge (Dockerfile.hunyuan). Derived from the repo's requirements.txt at
+# commit 82920d6 with the parts the inference path never imports removed: deepspeed (training), bpy (Blender; no
+# py3.10 wheel — we convert OBJ->GLB with trimesh), open3d, cupy, gradio/dash/plotly, pythreejs (a notebook
+# visualiser), tb_nightly is kept only because basicsr requires it. Same pins as the repo where they matter.
+# basicsr and the two CUDA/C++ extensions are installed separately with --no-build-isolation (see the Dockerfile).
+ninja==1.11.1.1
+pybind11==2.13.4
+transformers==4.46.0
+diffusers==0.30.0
+accelerate==1.1.1
+pytorch-lightning==1.9.5
+huggingface-hub==0.30.2
+safetensors==0.4.4
+numpy==1.24.4
+scipy==1.14.1
+einops==0.8.0
+opencv-python==4.10.0.84
+imageio==2.36.0
+scikit-image==0.24.0
+rembg==2.0.65
+onnxruntime==1.16.3
+realesrgan==0.3.0
+tb_nightly==2.18.0a20240726
+trimesh==4.4.7
+pymeshlab==2022.2.post3
+pygltflib==1.16.3
+xatlas==0.0.9
+omegaconf==2.3.0
+pyyaml==6.0.2
+tqdm==4.66.5
+pydantic==2.10.6
+timm
+torchdiffeq
