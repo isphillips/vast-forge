@@ -1,0 +1,375 @@
+<title>Forge Fidelity Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #0F0A1F; --panel: #1A1230; --panel-2: #221840; --line: #33284F; --line-soft: #271D3E;
+    --ink: #F1ECFA; --dim: #A79BC4; --mute: #7A6F98;
+    --pink: #FF4FA3; --violet: #A05CFF; --teal: #2DD4BF; --gold: #FFD24A;
+    --pink-ink: #FF9ACB; --violet-ink: #C9A6FF; --teal-ink: #7FE9DC; --gold-ink: #FFE08A;
+    --good: #2FE08A; --warn: #FFB020; --bad: #FF5470;
+    --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --display: "Sora", "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #F6F3FC; --panel: #FFFFFF; --panel-2: #F0EBFA; --line: #D9D0EC; --line-soft: #E7E1F3;
+      --ink: #1B1233; --dim: #5E5478; --mute: #8A80A6;
+      --pink: #E0347F; --violet: #7C3AED; --teal: #0FA99F; --gold: #B8860B;
+      --pink-ink: #B5215F; --violet-ink: #6D28D9; --teal-ink: #0B7F78; --gold-ink: #8A6508;
+      --good: #1B9E5A; --warn: #B7791F; --bad: #C8304A;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F6F3FC; --panel: #FFFFFF; --panel-2: #F0EBFA; --line: #D9D0EC; --line-soft: #E7E1F3;
+    --ink: #1B1233; --dim: #5E5478; --mute: #8A80A6;
+    --pink: #E0347F; --violet: #7C3AED; --teal: #0FA99F; --gold: #B8860B;
+    --pink-ink: #B5215F; --violet-ink: #6D28D9; --teal-ink: #0B7F78; --gold-ink: #8A6508;
+    --good: #1B9E5A; --warn: #B7791F; --bad: #C8304A;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F0A1F; --panel: #1A1230; --panel-2: #221840; --line: #33284F; --line-soft: #271D3E;
+    --ink: #F1ECFA; --dim: #A79BC4; --mute: #7A6F98;
+    --pink: #FF4FA3; --violet: #A05CFF; --teal: #2DD4BF; --gold: #FFD24A;
+    --pink-ink: #FF9ACB; --violet-ink: #C9A6FF; --teal-ink: #7FE9DC; --gold-ink: #FFE08A;
+    --good: #2FE08A; --warn: #FFB020; --bad: #FF5470;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 36px 22px 80px; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 21px; font-weight: 600; margin: 0 0 6px; }
+  h3 { font-size: 15px; font-weight: 600; }
+  p { max-width: 70ch; margin: 0; }
+  section { margin-top: 44px; }
+  .lede { color: var(--dim); font-size: 16px; margin-top: 10px; }
+  .eyebrow { font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute); margin-bottom: 8px; }
+  code { font-family: var(--mono); font-size: 0.92em; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 4px; padding: 1px 5px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* lab */
+  .lab { margin-top: 18px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 12px 0; }
+  .tab { font: 600 13px/1 var(--sans); color: var(--dim); background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 999px; padding: 9px 14px; cursor: pointer; }
+  .tab small { display: block; font: 400 11px/1.2 var(--mono); color: var(--mute); margin-top: 4px; }
+  .tab[aria-pressed="true"] { color: var(--ink); border-color: var(--pink); background: color-mix(in srgb, var(--pink) 16%, var(--panel-2)); }
+  .tab[aria-pressed="true"] small { color: var(--pink-ink); }
+  .tab:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  .stage { position: relative; height: 520px; background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--violet) 18%, var(--bg)) 0%, var(--bg) 70%); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .hud { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .hud button { font: 500 12px/1 var(--sans); color: var(--ink); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+  .hud button[aria-pressed="true"] { border-color: var(--teal); color: var(--teal-ink); }
+  .hud button:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  .status { position: absolute; right: 12px; top: 12px; font: 500 12px/1 var(--mono); color: var(--dim); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 10px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 12px 12px; color: var(--dim); font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .tbl { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel); margin-top: 16px; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 13.5px; }
+  th { text-align: left; font: 500 11px/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); padding: 12px 12px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.k { white-space: nowrap; font-weight: 500; }
+  td.k .sub { display: block; color: var(--mute); font: 400 11.5px/1.3 var(--mono); margin-top: 3px; }
+  td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { font: 600 11px/1 var(--mono); padding: 4px 7px; border-radius: 4px; white-space: nowrap; }
+  .pill.now { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .pill.rec { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .pill.alt { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet-ink); }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 10px; padding: 16px 18px; }
+  .card h3 { margin-bottom: 8px; }
+  .card p, .card li { color: var(--dim); font-size: 13.5px; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card li { margin: 6px 0; }
+  .card li b, .card p b { color: var(--ink); font-weight: 600; }
+  .note { color: var(--mute); font-size: 13px; margin-top: 14px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Vidrip · Facet Forge · fidelity</div>
+    <h1>Forge Fidelity Lab</h1>
+    <p class="lede">The mustache-and-glasses facet, generated on the forge box from its real source image. B is what the forge ships now (120k triangles, remeshed). S2 and S3 are the same generation <em>solidified</em> before export: the model's own voxel grid is closed by two or three voxels, so nearby hair strands merge into one mass and gaps narrower than that fill, then a fresh surface is built and baked with the original colors. A is an earlier generation at the old 40k budget, for reference. The viewer shades like the app (plain diffuse). Turn on <em>open edges</em> and look at the eyebrows and the mustache tips.</p>
+  </header>
+
+  <section>
+    <div class="lab">
+      <div class="tabs" id="tabs" role="group" aria-label="Export variants"></div>
+      <div class="stage" id="stage">
+        <canvas id="c"></canvas>
+        <div class="status" id="status">loading…</div>
+        <div class="hud">
+          <button id="btnEdges" aria-pressed="false">open edges</button>
+          <button id="btnWire" aria-pressed="false">wireframe</button>
+          <button id="btnTex" aria-pressed="true">texture</button>
+          <button id="btnReset">reset view</button>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="sw" style="background: var(--bad)"></i> open edge (a crack or hole boundary)</span>
+        <span><i class="sw" style="background: var(--dim)"></i> wireframe · the triangle budget at work</span>
+        <span>drag to orbit · wheel to zoom · shift-drag to pan</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Measured on this facet</div>
+    <h2>Where the hair goes</h2>
+    <p class="lede">"Kept" is the share of the model's raw surface that the export still has within two (or four) voxels; "pieces" is how many disconnected parts the file has, which for this image is mostly loose hair. B, S2 and S3 come from one generation, so their differences are the export alone. The other rows are earlier generations.</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Variant</th><th>Export</th><th class="r">Faces</th><th class="r">Open edges</th><th class="r">Pieces</th><th class="r">Kept @2 vox</th><th class="r">Kept @4 vox</th><th class="r">Grey texels</th><th class="r">Export time</th><th class="r">File</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="k">S2 · Solidified, r = 2<span class="sub">closing by 2 voxels, then rebuilt</span></td><td>solidify · no remesh · 120k</td><td class="r">112,763</td><td class="r">37</td><td class="r">332</td><td class="r">97.1%</td><td class="r">99.7%</td><td class="r">0%</td><td class="r">35 s</td><td class="r">5.0 MB</td><td><span class="pill rec">candidate</span></td></tr>
+          <tr><td class="k">S3 · Solidified, r = 3<span class="sub">closing by 3 voxels</span></td><td>solidify · no remesh · 120k</td><td class="r">114,716</td><td class="r">41</td><td class="r">336</td><td class="r">95.9%</td><td class="r">99.3%</td><td class="r">0%</td><td class="r">34 s</td><td class="r">4.9 MB</td><td><span class="pill alt">blunter</span></td></tr>
+          <tr><td class="k">B · Shipped<span class="sub">what the forge does now</span></td><td>remesh 1024 + fill · 120k</td><td class="r">120,108</td><td class="r">541</td><td class="r">5,808</td><td class="r">92.3%</td><td class="r">95.3%</td><td class="r">0%</td><td class="r">72 s</td><td class="r">6.6 MB</td><td><span class="pill now">now</span></td></tr>
+          <tr><td class="k">A · Before<span class="sub">earlier generation, 40k budget</span></td><td>remesh 1024 + fill · 40k</td><td class="r">40,592</td><td class="r">727</td><td class="r">—</td><td class="r">84.4%</td><td class="r">88.2%</td><td class="r">0%</td><td class="r">33 s</td><td class="r">2.6 MB</td><td></td></tr>
+          <tr><td class="k">D · 18 steps<span class="sub">earlier generation</span></td><td>remesh 1024 + fill · 120k</td><td class="r">115,315</td><td class="r">181</td><td class="r">—</td><td class="r">95.8%</td><td class="r">97.7%</td><td class="r">57%</td><td class="r">32 s</td><td class="r">5.2 MB</td><td><span class="pill now">grey haze</span></td></tr>
+          <tr><td class="k">E · 1536 cascade<span class="sub">earlier generation</span></td><td>remesh 1024 + fill · 120k</td><td class="r">119,850</td><td class="r">1,151</td><td class="r">—</td><td class="r">96.2%</td><td class="r">97.8%</td><td class="r">—</td><td class="r">48 s</td><td class="r">6.0 MB</td><td><span class="pill alt">spiky</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">"Grey texels" is the share of texture pixels inside the UV islands that came back with alpha under 50%, which the app draws as grey: the haze you saw on D. A first solidify pass had 3.5% of them, because the surface the closing adds sits on voxels the model never colored; S2 and S3 give every added voxel the color of its nearest original voxel before the bake, which brings it to zero. The viewer's own open-edge count for S2 and S3 reads about 10,000: the exporter deletes zero-area sliver triangles just before unwrapping, which leaves hairline cracks of no width. The 37 and 41 above are the real boundary edges of the cleaned mesh.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">The eyebrow holes</div>
+    <h2>Why they can't be patched, and why solidifying sidesteps them</h2>
+    <p class="lede">Hole filling only works on a rim that is a simple closed loop. We profiled the rims in each export: in B almost none are. The eyebrow holes are bounded by junctions where hair sheets cross each other, which is why the library's own fill, a CPU fill inside the exporter, and a fill on the finished file all leave them open; the first two also drove the exporter's next stage past the box's 91 GB memory cap and got killed. Solidifying does not patch the surface at all. It closes the model's occupancy grid (every strand within two voxels of another joins it, every gap narrower than about four voxels fills), then builds one new surface from that. The torn sheets never exist, so there is nothing to fill: 332 pieces instead of 5,808, and the remesh step is skipped, which is where the other half of the export time went.</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Export</th><th class="r">Boundary edges</th><th class="r">Junction vertices</th><th class="r">Simple loops</th><th>Rim sizes (share of model)</th></tr></thead>
+        <tbody>
+          <tr><td class="k">A · live, 40k</td><td class="r">719</td><td class="r">547</td><td class="r">21</td><td>20 under 6%, 1 under 3%</td></tr>
+          <tr><td class="k">B · 12 steps, 120k</td><td class="r">531</td><td class="r">405</td><td class="r">15</td><td>6 under 3%, 8 under 6%, 1 under 12%</td></tr>
+          <tr><td class="k">D · 18 steps, 120k</td><td class="r">181</td><td class="r">158</td><td class="r">1</td><td>1 under 6%</td></tr>
+          <tr><td class="k">C · 25 steps, 120k</td><td class="r">256</td><td class="r">174</td><td class="r">12</td><td>9 under 3%, 3 under 6%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">A junction vertex is a rim vertex with more than two boundary edges: two sheets meeting at a torn edge. A fill can cap a loop; it cannot decide which of three sheets a junction belongs to. D closes rims by growing surface between hairs, and its texture bake then fails on that new surface: 57% of the texels inside D's UV islands came back with alpha under 50%, versus 0% for B, and the app draws those as grey. That is the haze; it is in the file, not the viewer. pymeshfix was tried on B and did not finish in five minutes; it is built for closed solids and would cap a mustache's outline the same as a hole.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">What "closer to the image" means here</div>
+    <h2>Two dials, one of them free</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>The triangle budget is the holes</h3>
+        <p>Going from 40k to 120k triangles recovers most of the missing hair (84% → 93% kept) for one environment change and about 30 extra seconds per facet. The download grows from 2.6 MB to 6.6 MB; facets download once and are cached on the device.</p>
+      </div>
+      <div class="card">
+        <h3>The 1536 cascade is the fidelity</h3>
+        <p>TRELLIS's 1536 path generates two and a half times the raw geometry, and 96% of it survives at 120k. It costs 77 extra seconds of generation and about 1 GB more VRAM, both well inside the box's limits, but it halves the forge's throughput, and two queued jobs would push the second past the 380-second edge budget. Fine as the default while volume is low; worth a per-request flag later.</p>
+      </div>
+      <div class="card">
+        <h3>Steps: 18 is the knee</h3>
+        <p>Twelve to eighteen steps recovers hair and halves the floating chips for 19 extra seconds; eighteen to twenty-five adds little and doubles the time. A sharper texture and a more aggressive hole fill both crash the current mesh library. The remesh resolution is already at the model's own 1024.</p>
+      </div>
+      <div class="card">
+        <h3>Solidify: the third dial</h3>
+        <p>An environment value on the box sets the closing radius in voxels: 2 today, 0 turns it off and the forge exports through the remesh path as before. If the solidify step fails for any reason the job also falls back to that path, so nothing can get stuck on it. Nothing changes in the app; new facets simply arrive solid. A radius of 3 fills a little more but starts to blunt fine detail, which is why S2 is the default.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script>__MODELS__</script>
+<script>
+(function () {
+  var M = window.FORGE_MODELS || {};
+  var ORDER = ['S2', 'S3', 'B', 'A'];
+  var canvas = document.getElementById('c');
+  var stage = document.getElementById('stage');
+  var status = document.getElementById('status');
+  var renderer, scene, camera, controls, current = null, loaded = {}, showEdges = false, showWire = false, showTex = true;
+
+  function b64ToBuf(b64) {
+    var bin = atob(b64), len = bin.length, bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    // Models ship gzipped (normals stripped; three recomputes them) so four fit under the page size limit.
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b && window.pako) { return window.pako.ungzip(bytes).buffer; }
+    return bytes.buffer;
+  }
+
+  // The sandbox allows data: for images but not for fetch(). three's GLTFLoader picks ImageBitmapLoader (fetch)
+  // whenever createImageBitmap exists, so hide it: the loader then falls back to TextureLoader (an <img>), which
+  // is allowed. Textures in these GLBs are already inline data: JPEGs.
+  try { window.createImageBitmap = undefined; } catch (e) { /* ignore */ }
+
+  // Last resort: a copy of the GLB with every texture reference removed, so geometry renders even if images fail.
+  function stripTextures(buffer) {
+    var dv = new DataView(buffer);
+    if (dv.getUint32(0, true) !== 0x46546C67) return buffer;
+    var total = dv.getUint32(8, true), off = 12, chunks = [];
+    while (off < total) {
+      var len = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+      chunks.push({ type: type, data: buffer.slice(off + 8, off + 8 + len) }); off += 8 + len;
+    }
+    var json = JSON.parse(new TextDecoder().decode(chunks[0].data));
+    delete json.images; delete json.textures; delete json.samplers;
+    (json.materials || []).forEach(function (m) {
+      delete m.normalTexture; delete m.occlusionTexture; delete m.emissiveTexture;
+      if (m.pbrMetallicRoughness) { delete m.pbrMetallicRoughness.baseColorTexture; delete m.pbrMetallicRoughness.metallicRoughnessTexture; }
+      delete m.extensions;
+    });
+    delete json.extensionsUsed; delete json.extensionsRequired;
+    var jb = new TextEncoder().encode(JSON.stringify(json));
+    var jpad = (4 - jb.length % 4) % 4, jlen = jb.length + jpad;
+    var bin = chunks[1] ? new Uint8Array(chunks[1].data) : new Uint8Array(0);
+    var bpad = (4 - bin.length % 4) % 4, blen = bin.length + bpad;
+    var out = new ArrayBuffer(12 + 8 + jlen + (bin.length ? 8 + blen : 0)), o = new DataView(out), u8 = new Uint8Array(out);
+    o.setUint32(0, 0x46546C67, true); o.setUint32(4, 2, true); o.setUint32(8, out.byteLength, true);
+    o.setUint32(12, jlen, true); o.setUint32(16, 0x4E4F534A, true); u8.set(jb, 20); for (var i = 0; i < jpad; i++) u8[20 + jb.length + i] = 0x20;
+    if (bin.length) { var b0 = 20 + jlen; o.setUint32(b0, blen, true); o.setUint32(b0 + 4, 0x004E4942, true); u8.set(bin, b0 + 8); }
+    return out;
+  }
+
+  // Open edges: merge vertices by position (the GLB duplicates them along UV seams), then keep edges used by one face.
+  function openEdgeLines(mesh) {
+    var g = mesh.geometry, pos = g.attributes.position, idx = g.index;
+    if (!idx) return null;
+    var key = {}, uniq = [], map = new Int32Array(pos.count);
+    var q = 1e-5;
+    for (var i = 0; i < pos.count; i++) {
+      var k = Math.round(pos.getX(i) / q) + ',' + Math.round(pos.getY(i) / q) + ',' + Math.round(pos.getZ(i) / q);
+      if (key[k] === undefined) { key[k] = uniq.length; uniq.push(i); }
+      map[i] = key[k];
+    }
+    var edges = new Map();
+    var arr = idx.array;
+    for (var f = 0; f < arr.length; f += 3) {
+      var a = map[arr[f]], b = map[arr[f + 1]], c = map[arr[f + 2]];
+      var e = [[a, b], [b, c], [c, a]];
+      for (var j = 0; j < 3; j++) {
+        var lo = Math.min(e[j][0], e[j][1]), hi = Math.max(e[j][0], e[j][1]);
+        if (lo === hi) continue;
+        var ek = lo * 4294967296 + hi;
+        edges.set(ek, (edges.get(ek) || 0) + 1);
+      }
+    }
+    var verts = [];
+    edges.forEach(function (n, ek) {
+      if (n !== 1) return;
+      var lo = Math.floor(ek / 4294967296), hi = ek - lo * 4294967296;
+      var ia = uniq[lo], ib = uniq[hi];
+      verts.push(pos.getX(ia), pos.getY(ia), pos.getZ(ia), pos.getX(ib), pos.getY(ib), pos.getZ(ib));
+    });
+    var lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    var lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xff5470, depthTest: false }));
+    lines.renderOrder = 2;
+    lines.userData.count = verts.length / 6;
+    return lines;
+  }
+
+  function setup() {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+    camera.position.set(0.9, 0.5, 1.4);
+    controls = new THREE.OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    scene.add(new THREE.HemisphereLight(0xfff4ff, 0x2a1a44, 1.1));
+    var d1 = new THREE.DirectionalLight(0xffffff, 0.9); d1.position.set(2, 3, 2); scene.add(d1);
+    var d2 = new THREE.DirectionalLight(0xa05cff, 0.35); d2.position.set(-2, 1, -2); scene.add(d2);
+    resize();
+    window.addEventListener('resize', resize);
+    (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+  }
+  function resize() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+
+  function applyLook(entry) {
+    entry.root.traverse(function (o) {
+      if (!o.isMesh) return;
+      if (!o.userData.origMat) o.userData.origMat = o.material;
+      var m = o.userData.origMat;
+      if (showTex) { o.material = m; }
+      else { o.material = o.userData.flat || (o.userData.flat = new THREE.MeshStandardMaterial({ color: 0xd9cff0, roughness: 0.8, metalness: 0.0 })); }
+      o.material.wireframe = showWire;
+      o.material.side = THREE.DoubleSide;
+      if (o.material.isMeshStandardMaterial) { o.material.metalness = 0; o.material.roughness = 0.9; o.material.metalnessMap = null; o.material.roughnessMap = null; o.material.envMap = null; }
+      o.material.needsUpdate = true;
+    });
+    if (entry.edges) entry.edges.visible = showEdges;
+  }
+
+  function show(id) {
+    if (current && loaded[current]) loaded[current].group.visible = false;
+    current = id;
+    document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-pressed', String(t.dataset.id === id)); });
+    var entry = loaded[id];
+    if (entry) { entry.group.visible = true; applyLook(entry); setStatus(entry); return; }
+    status.textContent = 'parsing ' + M[id].label + '…';
+    var loader = new THREE.GLTFLoader();
+    var buf = b64ToBuf(M[id].b64), triedStripped = false;
+    var onError = function (err) {
+      var msg = (err && (err.message || (err.target && err.target.src) || String(err))) || 'unknown error';
+      if (!triedStripped) {
+        // Textures were the problem — render the geometry without them and say so.
+        triedStripped = true;
+        status.textContent = 'textures blocked (' + String(msg).slice(0, 60) + ') — loading geometry only…';
+        try { loader.parse(stripTextures(buf), '', onLoad, onError); return; } catch (e2) { msg = String(e2); }
+      }
+      status.textContent = 'could not load ' + M[id].label + ': ' + String(msg).slice(0, 160);
+      console.error(err);
+    };
+    var onLoad = function (gltf) {
+      var root = gltf.scene;
+      var box = new THREE.Box3().setFromObject(root);
+      var size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+      var scale = 1.2 / Math.max(size.x, size.y, size.z);
+      var group = new THREE.Group();
+      root.position.sub(center);
+      group.scale.setScalar(scale);
+      group.add(root);
+      var edgesGroup = new THREE.Group(); var openCount = 0;
+      root.traverse(function (o) { if (o.isMesh) { var l = openEdgeLines(o); if (l) { openCount += l.userData.count; l.applyMatrix4(o.matrixWorld); edgesGroup.add(l); } } });
+      edgesGroup.position.sub(center); edgesGroup.scale.setScalar(1);
+      var eg = new THREE.Group(); eg.scale.setScalar(scale); eg.add(edgesGroup);
+      scene.add(group); scene.add(eg);
+      var entry = { group: group, root: root, edges: eg, openCount: openCount, untextured: triedStripped };
+      loaded[id] = entry;
+      if (current !== id) { group.visible = false; eg.visible = false; return; }
+      applyLook(entry); setStatus(entry);
+    };
+    loader.parse(buf, '', onLoad, onError);
+  }
+  function setStatus(entry) {
+    var tris = 0; entry.root.traverse(function (o) { if (o.isMesh && o.geometry.index) tris += o.geometry.index.count / 3; });
+    status.textContent = M[current].label + ' · ' + Math.round(tris).toLocaleString() + ' tris · ' + entry.openCount.toLocaleString() + ' open edges' + (entry.untextured ? ' · untextured' : '');
+  }
+
+  var tabs = document.getElementById('tabs');
+  ORDER.forEach(function (id) {
+    if (!M[id]) return;
+    var b = document.createElement('button');
+    b.className = 'tab'; b.dataset.id = id; b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = id + ' · ' + M[id].label + '<small>' + M[id].desc + '</small>';
+    b.addEventListener('click', function () { show(id); });
+    tabs.appendChild(b);
+  });
+  document.getElementById('btnEdges').addEventListener('click', function () { showEdges = !showEdges; this.setAttribute('aria-pressed', String(showEdges)); if (loaded[current]) applyLook(loaded[current]); });
+  document.getElementById('btnWire').addEventListener('click', function () { showWire = !showWire; this.setAttribute('aria-pressed', String(showWire)); if (loaded[current]) applyLook(loaded[current]); });
+  document.getElementById('btnTex').addEventListener('click', function () { showTex = !showTex; this.setAttribute('aria-pressed', String(showTex)); if (loaded[current]) applyLook(loaded[current]); });
+  document.getElementById('btnReset').addEventListener('click', function () { camera.position.set(0.9, 0.5, 1.4); controls.target.set(0, 0, 0); controls.update(); });
+
+  try { setup(); show('S2'); } catch (e) { status.textContent = 'WebGL unavailable'; console.error(e); }
+})();
+</script>
