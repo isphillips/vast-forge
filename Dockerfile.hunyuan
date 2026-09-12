@@ -38,6 +38,12 @@ RUN pip3 install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url htt
 RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git hy \
     && git -C hy checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c
 
+# SOURCE PATCH: the paint pipeline imports DifferentiableRenderer/mesh_utils.py at load time, and that module does a
+# top-level `import bpy` (Blender as a Python module) for its OBJ->GLB conversion. bpy has no Python 3.10 wheel any
+# more, and engine_hunyuan.py converts with trimesh instead, so guard the import. Asserted so a repo restructure fails
+# the build here rather than at the import check below (which is exactly how the first CI build failed).
+RUN python3 -c "p='/app/hy/hy3dpaint/DifferentiableRenderer/mesh_utils.py'; s=open(p).read(); old='import bpy\n'; assert s.count(old)==1, 'expected one bpy import, found %d' % s.count(old); s=s.replace(old,'try:\n    import bpy\nexcept ImportError:  # vast-forge: no py3.10 wheel; convert_obj_to_glb is unused (trimesh does the GLB)\n    bpy = None\n'); open(p,'w').write(s); print('patched bpy import in mesh_utils.py')"
+
 # basicsr's setup.py imports torch, so an isolated build would download a second, current torch (multi-GB) and
 # then fail against it. Build it against the torch already here. Same for the two extensions further down.
 COPY requirements-hunyuan.txt ./
