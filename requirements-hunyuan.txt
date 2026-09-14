@@ -31,3 +31,5 @@ tqdm==4.66.5
 pydantic==2.10.6
 timm
 torchdiffeq
+shapely
+mapbox-earcut

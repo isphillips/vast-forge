@@ -234,7 +234,7 @@ def run_trellis(image) -> bytes:
             torch.cuda.empty_cache()
 
 
-def run_hunyuan(image) -> bytes:
+def run_hunyuan(image, prompt: str = "") -> bytes:
     """PIL.Image -> GLB bytes via Hunyuan3D 2.1 (engine_hunyuan.py). Same GPU lock as run_trellis, so a pulled job
     and a pushed one never share the card; the engine loads its two stages on first use (or at boot, FORGE_WARM)."""
     import gc
@@ -245,14 +245,16 @@ def run_hunyuan(image) -> bytes:
     with _GPU_LOCK:
         torch.cuda.empty_cache()
         try:
-            return engine_hunyuan.run(image)
+            return engine_hunyuan.run(image, prompt)
         finally:
             gc.collect()
             torch.cuda.empty_cache()
 
 
-def run_engine(image) -> bytes:
-    return run_hunyuan(image) if ENGINE == "hunyuan" else run_trellis(image)
+def run_engine(image, prompt: str = "") -> bytes:
+    # The prompt is optional context: the Hunyuan engine reads a category from it (head, glasses, ...) to bound the
+    # depth of the shape; TRELLIS ignores it.
+    return run_hunyuan(image, prompt) if ENGINE == "hunyuan" else run_trellis(image)
 
 
 def model_loaded() -> bool:
@@ -282,13 +284,14 @@ def r2_put(key: str, data: bytes, content_type: str) -> str:
     return f"{R2_PUBLIC_BASE}/{key}"
 
 
-def forge_from_url(image_url: str) -> str:
-    """image URL → public GLB URL on R2. Shared by the push endpoint (/generate) and the pull worker."""
+def forge_from_url(image_url: str, prompt: str = "") -> str:
+    """image URL (+ the job's prompt, for the engine's category hints) → public GLB URL on R2. Shared by the push
+    endpoint (/generate) and the pull worker."""
     from PIL import Image
     r = requests.get(image_url, timeout=30)
     r.raise_for_status()
     image = Image.open(io.BytesIO(r.content)).convert("RGB")
-    glb = run_engine(image)
+    glb = run_engine(image, prompt)
     return r2_put(f"forge/{uuid.uuid4().hex}.glb", glb, "model/gltf-binary")
 
 
@@ -312,6 +315,7 @@ def _start_worker():
 
 class GenReq(BaseModel):
     image_url: str
+    prompt: str = ""      # optional: the facet prompt, for the engine's category depth limit
 
 
 @app.get("/health")
@@ -330,7 +334,7 @@ def generate(req: GenReq, authorization: str = Header(default="")):
     if authorization != f"Bearer {FORGE_TOKEN}":
         raise HTTPException(status_code=401, detail="unauthorized")
     try:
-        return {"glbUrl": forge_from_url(req.image_url)}
+        return {"glbUrl": forge_from_url(req.image_url, req.prompt)}
     except HTTPException:
         raise
     except Exception as e:

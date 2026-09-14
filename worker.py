@@ -67,7 +67,7 @@ def gpu_name() -> str:
 
 class Worker(threading.Thread):
     def __init__(self, run_job, model_loaded):
-        """run_job(image_url) -> glb_url (raises on failure); model_loaded() -> bool."""
+        """run_job(image_url, prompt) -> glb_url (raises on failure); model_loaded() -> bool."""
         super().__init__(name="forge-worker", daemon=True)
         self.run_job = run_job
         self.model_loaded = model_loaded
@@ -133,7 +133,7 @@ class Worker(threading.Thread):
         stop = threading.Event()
         threading.Thread(target=self._heartbeat_while, args=(stop,), daemon=True).start()
         try:
-            glb_url = self.run_job(job["image_url"])
+            glb_url = self.run_job(job["image_url"], job.get("prompt") or "")
             took = int(time.time() - self.current["started"])
             self._post("complete", {"job_id": job["id"], "glb_url": glb_url, "seconds": took}, timeout=30)
             self.jobs_done += 1
