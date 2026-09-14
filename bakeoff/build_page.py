@@ -16,9 +16,10 @@ MODELS_DIR = os.path.join(os.path.dirname(OUT), "models"); os.makedirs(MODELS_DI
 def model_file(mid, src):
     """Published as a supporting file next to the page (models/<id>.glb.gz) and fetched at load time; inlining
     eleven models as base64 put the page past the 16 MB artifact limit."""
-    # published uncompressed: the artifact host serves model/gltf-binary but not application/gzip
-    import gzip
-    open(os.path.join(MODELS_DIR, f"{mid}.glb"), "wb").write(gzip.decompress(open(src, "rb").read())); return f"models/{mid}.glb"
+    # The artifact host serves scripts/styles/images/JSON only (no gzip, no glb), so each model is a script that
+    # registers its gzipped GLB as base64 on a global; the page injects the script on demand and gunzips it.
+    js = 'window.FORGE_MODEL_DATA=window.FORGE_MODEL_DATA||{};window.FORGE_MODEL_DATA[' + json.dumps(mid) + ']=' + json.dumps(b64(src)) + ';'
+    open(os.path.join(MODELS_DIR, f"{mid}.js"), "w", encoding="ascii").write(js); return f"models/{mid}.js"
 models = {f"{t}_{e}": model_file(f"{t}_{e}", f"{B}/q_{t}_{e}.glb.gz") for t, _, _ in TAGS for e in ("trellis", "hy")}
 models["car_hy2"] = model_file("car_hy2", f"{B}/q_mask_seed1_hy.glb.gz")          # mask, Hunyuan re-roll with seed 1
 SEED1 = json.load(open(f"{B}/mask_seed1_stats.json")); SEED1_SHAPE_S = 89
@@ -289,6 +290,16 @@ html = r'''<title>Forge Bake-off</title>
   var camera, controls, current = null, loaded = {}, showEdges = false, showWire = false, showTex = true, hyVariant = 'hy';
   var variantBox = document.getElementById('variant'), VARIANTS = window.FORGE_VARIANTS || {};
 
+  var DATA = function () { return window.FORGE_MODEL_DATA || {}; };
+  function loadModelScript(id, url) {
+    if (DATA()[id]) return Promise.resolve(DATA()[id]);
+    return new Promise(function (resolve, reject) {
+      var sc = document.createElement('script'); sc.src = url; sc.async = true;
+      sc.onload = function () { DATA()[id] ? resolve(DATA()[id]) : reject(new Error('no data in ' + url)); };
+      sc.onerror = function () { reject(new Error('failed to load ' + url)); };
+      document.head.appendChild(sc);
+    });
+  }
   function gunzip(ab) {
     var bytes = new Uint8Array(ab);
     if (bytes[0] === 0x1f && bytes[1] === 0x8b && window.pako) { return window.pako.ungzip(bytes).buffer; }
@@ -413,9 +424,11 @@ html = r'''<title>Forge Bake-off</title>
       if (current !== tag || (eng !== 'trellis' && eng !== hyVariant)) { group.visible = false; eg.visible = false; return; }
       applyLook(entry); setStatus(id);
     };
-    fetch(M[id].url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + M[id].url); return r.arrayBuffer(); })
-      .then(function (ab) { buf = gunzip(ab); E.status.textContent = 'parsing…'; loader.parse(buf, '', onLoad, onError); })
-      .catch(function (e) { E.status.textContent = 'could not fetch model: ' + String(e.message || e).slice(0, 100); console.error(e); });
+    loadModelScript(id, M[id].url).then(function (b64) {
+      var bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      buf = gunzip(bytes.buffer); E.status.textContent = 'parsing…'; loader.parse(buf, '', onLoad, onError);
+    }).catch(function (e) { E.status.textContent = 'could not load model: ' + String(e.message || e).slice(0, 100); console.error(e); });
   }
   function setStatus(id) {
     var entry = loaded[id], E = ENG[id.split('_')[1] === 'trellis' ? 'trellis' : 'hy'], tris = 0;
