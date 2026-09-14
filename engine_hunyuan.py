@@ -45,6 +45,12 @@ SHAPE_RETRIES = int(os.environ.get("HY_SHAPE_RETRIES", "2"))
 # deep where a real mask is ~0.6 and a head ~1.2), and Qwen renders "X head" as a mannequin on a stand. The generic
 # 3.0 above only catches the wild cases; these catch the category. First match in order wins.
 DEPTH_LIMITS = [
+    # Long objects first: a bus or train is legitimately 3-4x longer than wide, a rocket or sword more; these must
+    # not be clipped or re-rolled (a plane's width is its wingspan, so it is fine either way).
+    (("bus", "train", "locomotive", "tram", "truck", "lorry", "limo", "limousine", "car", "van", "rv", "boat", "ship",
+      "submarine", "rocket", "missile", "torpedo", "sword", "spear", "arrow", "rifle", "cannon", "canoe", "kayak",
+      "skateboard", "surfboard", "snake", "worm", "eel", "dragon", "crocodile", "alligator", "hotdog", "baguette",
+      "pencil", "cigar", "flute", "bat", "oar", "ladder", "bridge", "carriage", "sled", "sleigh", "zeppelin", "blimp"), 6.0),
     (("glasses", "sunglasses", "goggles", "monocle", "eyepatch", "mustache", "moustache", "beard", "eyebrow",
       "lips", "nose", "earring", "bindi", "veil", "visor"), 0.9),
     (("mask", "face", "muzzle", "snout"), 0.8),
