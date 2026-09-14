@@ -45,17 +45,18 @@ SHAPE_RETRIES = int(os.environ.get("HY_SHAPE_RETRIES", "2"))
 # deep where a real mask is ~0.6 and a head ~1.2), and Qwen renders "X head" as a mannequin on a stand. The generic
 # 3.0 above only catches the wild cases; these catch the category. First match in order wins.
 DEPTH_LIMITS = [
-    # Long objects first: a bus or train is legitimately 3-4x longer than wide, a rocket or sword more; these must
-    # not be clipped or re-rolled (a plane's width is its wingspan, so it is fine either way).
-    (("bus", "train", "locomotive", "tram", "truck", "lorry", "limo", "limousine", "car", "van", "rv", "boat", "ship",
-      "submarine", "rocket", "missile", "torpedo", "sword", "spear", "arrow", "rifle", "cannon", "canoe", "kayak",
-      "skateboard", "surfboard", "snake", "worm", "eel", "dragon", "crocodile", "alligator", "hotdog", "baguette",
-      "pencil", "cigar", "flute", "bat", "oar", "ladder", "bridge", "carriage", "sled", "sleigh", "zeppelin", "blimp"), 6.0),
     (("glasses", "sunglasses", "goggles", "monocle", "eyepatch", "mustache", "moustache", "beard", "eyebrow",
       "lips", "nose", "earring", "bindi", "veil", "visor"), 0.9),
     (("mask", "face", "muzzle", "snout"), 0.8),
     (("head", "helmet", "hat", "cap", "crown", "tiara", "hood", "wig", "hair", "beanie", "headband", "turban",
       "bonnet", "horns", "antlers", "ears", "halo", "headdress", "headpiece", "bandana"), 1.5),
+    # Long objects, checked LAST so a wearable word wins ("race car helmet" is a helmet): a bus or train is
+    # legitimately 3-4x longer than wide, a rocket or sword more; these must not be clipped or re-rolled. (A plane's
+    # width is its wingspan, so it is fine under the generic limit either way.)
+    (("bus", "train", "locomotive", "tram", "truck", "lorry", "limo", "limousine", "car", "van", "rv", "boat", "ship",
+      "submarine", "rocket", "missile", "torpedo", "sword", "spear", "arrow", "rifle", "cannon", "canoe", "kayak",
+      "skateboard", "surfboard", "snake", "worm", "eel", "dragon", "crocodile", "alligator", "hotdog", "baguette",
+      "pencil", "cigar", "flute", "bat", "oar", "ladder", "bridge", "carriage", "sled", "sleigh", "zeppelin", "blimp"), 6.0),
 ]
 # When a shape is over its limit by at most this factor, clip it instead of re-rolling (a re-roll is ~85 s, a clip
 # is instant and the cut face sits against the wearer's face where nothing sees it).
