@@ -16,7 +16,9 @@ MODELS_DIR = os.path.join(os.path.dirname(OUT), "models"); os.makedirs(MODELS_DI
 def model_file(mid, src):
     """Published as a supporting file next to the page (models/<id>.glb.gz) and fetched at load time; inlining
     eleven models as base64 put the page past the 16 MB artifact limit."""
-    shutil.copyfile(src, os.path.join(MODELS_DIR, f"{mid}.glb.gz")); return f"models/{mid}.glb.gz"
+    # published uncompressed: the artifact host serves model/gltf-binary but not application/gzip
+    import gzip
+    open(os.path.join(MODELS_DIR, f"{mid}.glb"), "wb").write(gzip.decompress(open(src, "rb").read())); return f"models/{mid}.glb"
 models = {f"{t}_{e}": model_file(f"{t}_{e}", f"{B}/q_{t}_{e}.glb.gz") for t, _, _ in TAGS for e in ("trellis", "hy")}
 models["car_hy2"] = model_file("car_hy2", f"{B}/q_mask_seed1_hy.glb.gz")          # mask, Hunyuan re-roll with seed 1
 SEED1 = json.load(open(f"{B}/mask_seed1_stats.json")); SEED1_SHAPE_S = 89
