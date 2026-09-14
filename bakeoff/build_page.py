@@ -11,9 +11,31 @@ TAGS = [("mustache", "Mustache and glasses", "Hair, thin rims, eyebrows"),
         ("car", "Leonardo mask", "Frontal view; ambiguous depth")]
 
 def b64(p): return base64.b64encode(open(p, "rb").read()).decode()
-models = {f"{t}_{e}": b64(f"{B}/q_{t}_{e}.glb.gz") for t, _, _ in TAGS for e in ("trellis", "hy")}
-models["car_hy2"] = b64(f"{B}/q_mask_seed1_hy.glb.gz")          # mask, Hunyuan re-roll with seed 1
+import shutil
+MODELS_DIR = os.path.join(os.path.dirname(OUT), "models"); os.makedirs(MODELS_DIR, exist_ok=True)
+def model_file(mid, src):
+    """Published as a supporting file next to the page (models/<id>.glb.gz) and fetched at load time; inlining
+    eleven models as base64 put the page past the 16 MB artifact limit."""
+    shutil.copyfile(src, os.path.join(MODELS_DIR, f"{mid}.glb.gz")); return f"models/{mid}.glb.gz"
+models = {f"{t}_{e}": model_file(f"{t}_{e}", f"{B}/q_{t}_{e}.glb.gz") for t, _, _ in TAGS for e in ("trellis", "hy")}
+models["car_hy2"] = model_file("car_hy2", f"{B}/q_mask_seed1_hy.glb.gz")          # mask, Hunyuan re-roll with seed 1
 SEED1 = json.load(open(f"{B}/mask_seed1_stats.json")); SEED1_SHAPE_S = 89
+B2 = "c:/Users/Manny/dev/vast-forge/bakeoff/bake2"
+S2 = json.load(open(f"{B2}/bake2_stats.json"))
+# right-pane variants per tag: (variant id, button label, model file, stats key or None). "hy" is bake-off 1's 2.1 run.
+VARIANTS = {
+    "mustache": [("hy", "2.1 engine", None, None), ("hy3", "Omni · box d 0.4", f"{B2}/q_mustache_omni_bbox.glb.gz", "mustache_omni_bbox")],
+    "turtle":   [("hy", "2.1 engine", None, None), ("hy3", "Omni · box d 2.4", f"{B2}/q_turtle_omni_bbox.glb.gz", "turtle_omni_bbox")],
+    "car":      [("hy", "2.1 first run", None, None), ("hy2", "2.1 seed 1", None, None), ("hy3", "Omni · box d 0.6", f"{B2}/q_car_omni_bbox.glb.gz", "car_omni_bbox"),
+                 ("hy4", "Omni · head proxy", f"{B2}/q_car_omni_point.glb.gz", "car_omni_point")],
+}
+for extra, lab in (("mustache2", "Omni · box d 0.2"), ("mustache3", "Omni · box d 0.3")):
+    if os.path.exists(f"{B2}/q_{extra}_omni_bbox.glb.gz"):
+        VARIANTS["mustache"].append((f"hy{len(VARIANTS['mustache']) + 2}", lab, f"{B2}/q_{extra}_omni_bbox.glb.gz", f"{extra}_omni_bbox"))
+for tag, vs in VARIANTS.items():
+    for vid, _, path, _ in vs:
+        if path: models[f"{tag}_{vid}"] = model_file(f"{tag}_{vid}", path)
+VARIANT_LABELS = {tag: [(vid, lab) for vid, lab, _, _ in vs] for tag, vs in VARIANTS.items()}
 thumbs = {t: "data:image/jpeg;base64," + b64(f"{B}/thumb_{t}.jpg") for t, _, _ in TAGS}
 
 def n(v): return f"{v:,}"
@@ -24,7 +46,8 @@ for t, label, _ in TAGS:
     tr_time = f"{s['trellis_s']} s"
     if t == "mustache": tr_time += "<sup>a</sup>"
     if t == "car": tr_time += "<sup>b</sup>"  # tag "car" = mask image
-    span = 3 if t == "car" else 2
+    omni_rows = [(lab, S2[key]) for _, lab, _, key in VARIANTS[t] if key and key in S2]
+    span = (3 if t == "car" else 2) + len(omni_rows)
     rows.append(f'''
           <tr class="grp"><td class="k" rowspan="{span}"><img src="{thumbs[t]}" alt="" class="rowthumb"><span>{label}</span></td>
             <td><span class="eng tr">TRELLIS.2</span></td><td class="r">{n(tr['faces'])}</td><td class="r">{n(tr['open_edges'])}<sup>c</sup></td><td class="r">{n(tr['parts'])}</td><td>{yesno(tr['watertight'])}</td><td class="r">{tr['mb']} MB</td><td class="r">{tr['low_alpha_pct']}%</td><td class="r">{tr_time}</td><td class="r">n/a<sup>d</sup></td></tr>
@@ -33,6 +56,9 @@ for t, label, _ in TAGS:
         q = SEED1
         rows.append(f'''
           <tr><td><span class="eng hy">Hunyuan3D 2.1 · seed 1</span><sup>f</sup></td><td class="r">{n(q['faces'])}</td><td class="r">{n(q['open_edges'])}</td><td class="r">{n(q['parts'])}</td><td>{yesno(q['watertight'])}</td><td class="r">{q['mb']} MB</td><td class="r">n/a<sup>e</sup></td><td class="r">{SEED1_SHAPE_S + q['hy_paint_s']} s <span class="sub">{SEED1_SHAPE_S} shape + {q['hy_paint_s']} paint</span></td><td class="r">{q['hy_paint_peak_gb']} GB <span class="sub">7.6 shape</span></td></tr>''')
+    for lab, q in omni_rows:
+        rows.append(f'''
+          <tr><td><span class="eng om">{lab.replace("Omni · ", "Omni, ")}</span><sup>g</sup></td><td class="r">{n(q['faces'])}</td><td class="r">{n(q['open_edges'])}</td><td class="r">{n(q['parts'])}</td><td>{yesno(q['watertight'])}</td><td class="r">{q['mb']} MB</td><td class="r">n/a<sup>e</sup></td><td class="r">{q['omni_shape_s'] + q['paint_s']} s <span class="sub">{q['omni_shape_s']} shape + {q['paint_s']} paint</span></td><td class="r">{q['paint_peak_gb']} GB <span class="sub">{q['omni_shape_peak_gb']} shape · d/w {q['depth_over_width']}</span></td></tr>''')
 rows_html = "".join(rows)
 raw_html = " · ".join(f"{ {'mustache': 'mustache', 'turtle': 'car', 'car': 'mask'}[t] } {n(SHAPE[t][1])}" for t, l, _ in TAGS)
 
@@ -89,6 +115,7 @@ html = r'''<title>Forge Bake-off</title>
   .eng { font: 500 12px/1 var(--mono); letter-spacing: 0.04em; padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
   .eng.tr { background: var(--gold-soft); color: var(--gold-ink); }
   .eng.hy { background: var(--teal-soft); color: var(--teal-ink); }
+  .eng.om { background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet-ink); }
   .ok { color: var(--good); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
 
   .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 22px; }
@@ -112,7 +139,7 @@ html = r'''<title>Forge Bake-off</title>
   .pane .tag { position: absolute; left: 12px; top: 12px; font: 500 12px/1 var(--mono); letter-spacing: 0.06em; padding: 7px 10px; border-radius: 6px; pointer-events: none; }
   .pane.l .tag { background: var(--gold-soft); color: var(--gold-ink); }
   .pane.r .tag { background: var(--teal-soft); color: var(--teal-ink); }
-  .variant { position: absolute; right: 12px; top: 12px; display: flex; gap: 4px; }
+  .variant { position: absolute; right: 12px; top: 44px; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
   .variant button { font: 500 12px/1 var(--mono); color: var(--dim); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; cursor: pointer; }
   .variant button[aria-pressed="true"] { border-color: var(--teal); color: var(--teal-ink); }
   .status { position: absolute; right: 12px; bottom: 12px; font: 500 12px/1 var(--mono); color: var(--dim); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 10px; max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
@@ -155,9 +182,9 @@ html = r'''<title>Forge Bake-off</title>
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Vidrip · Facet Forge · engine bake-off · 12 Sep 2026 · one RTX 3090 forge node</div>
+    <div class="eyebrow">Vidrip · Facet Forge · engine bake-off · 12–13 Sep 2026 · RTX 3090 forge nodes</div>
     <h1>Forge Bake-off</h1>
-    <p class="lede">The same three source images forged twice on one box: TRELLIS.2, which the forge ships today, and Hunyuan3D 2.1, the candidate. Both were held to the 120,000-face budget and are rendered here the way the app shades them (plain diffuse, no gloss). Left is TRELLIS, right is Hunyuan, and they share one camera, so drag either side. Turn on <em>open edges</em> and look at the mustache tips, the eyebrows, the car's grille and the mask's shell. On the mask, the right pane has two Hunyuan results to switch between: the first run, which misread the depth, and a re-roll with a fixed seed.</p>
+    <p class="lede">The same three source images forged twice on one box: TRELLIS.2, which the forge ships today, and Hunyuan3D 2.1, the candidate. Both were held to the 120,000-face budget and are rendered here the way the app shades them (plain diffuse, no gloss). Left is TRELLIS, right is Hunyuan, and they share one camera, so drag either side. Turn on <em>open edges</em> and look at the mustache tips, the eyebrows, the car's grille and the mask's shell. The right pane switches between Hunyuan variants: the 2.1 engine that now ships, and (bake-off 2, 13 Sep) Hunyuan3D-Omni with a bounding-box control that tells the shape stage how deep the object is.</p>
     <div class="verdict">
       <div><div class="lab">Closed surfaces</div><div class="val"><b>3 of 3</b> Hunyuan · <i>0 of 3</i> TRELLIS</div><div class="sub">zero open edges, one piece, every image</div></div>
       <div><div class="lab">Loose pieces</div><div class="val"><b>1</b> vs <i>345 · 1,884 · 4,312</i></div><div class="sub">mustache · car · mask</div></div>
@@ -171,7 +198,7 @@ html = r'''<title>Forge Bake-off</title>
       <div class="tabs" id="tabs" role="group" aria-label="Source image">__TABS__</div>
       <div class="stage" id="stage">
         <div class="pane l"><canvas id="cL"></canvas><span class="tag">TRELLIS.2 · ships today</span><div class="status" id="sL">loading…</div></div>
-        <div class="pane r"><canvas id="cR"></canvas><span class="tag">HUNYUAN3D 2.1 · candidate</span><div class="variant" id="variant" hidden><button data-v="hy" aria-pressed="true">first run</button><button data-v="hy2" aria-pressed="false">seed 1 re-roll</button></div><div class="status" id="sR">loading…</div></div>
+        <div class="pane r"><canvas id="cR"></canvas><span class="tag">HUNYUAN3D 2.1 · candidate</span><div class="variant" id="variant" hidden></div><div class="status" id="sR">loading…</div></div>
       </div>
       <div class="hud">
         <button id="btnEdges" aria-pressed="false">open edges</button>
@@ -197,7 +224,7 @@ html = r'''<title>Forge Bake-off</title>
         </tbody>
       </table>
     </div>
-    <p class="notes"><sup>a</sup>Includes this node's first TRELLIS load (weights pulled from cold). <sup>b</sup>The mask was TRELLIS's slowest job here; the server does not report which rung of its out-of-memory retry ladder a job lands on. <sup>c</sup>TRELLIS's open-edge counts include hairline cracks left where the exporter deletes zero-area sliver triangles; the pieces column is the honest measure of fragmentation. <sup>d</sup>The forge server does not report its peak. In production the car image has overflowed the 24 GB shape decoder and fallen back to the 512 pipeline. <sup>e</sup>Hunyuan bakes an opaque JPEG albedo and inpaints uncovered texels, so the alpha-haze mechanism does not exist there. Hunyuan raw shape output before reduction to 120k: __RAW__ faces. <sup>f</sup>Re-roll of the mask's shape stage with seed 1; the first run had no fixed seed. Both Hunyuan stages were timed with their models already resident; TRELLIS times are the server's wall clock per request.</p>
+    <p class="notes"><sup>a</sup>Includes this node's first TRELLIS load (weights pulled from cold). <sup>b</sup>The mask was TRELLIS's slowest job here; the server does not report which rung of its out-of-memory retry ladder a job lands on. <sup>c</sup>TRELLIS's open-edge counts include hairline cracks left where the exporter deletes zero-area sliver triangles; the pieces column is the honest measure of fragmentation. <sup>d</sup>The forge server does not report its peak. In production the car image has overflowed the 24 GB shape decoder and fallen back to the 512 pipeline. <sup>e</sup>Hunyuan bakes an opaque JPEG albedo and inpaints uncovered texels, so the alpha-haze mechanism does not exist there. Hunyuan raw shape output before reduction to 120k: __RAW__ faces. <sup>f</sup>Re-roll of the mask's shape stage with seed 1; the first run had no fixed seed. <sup>g</sup>Bake-off 2 (13 Sep, a production node): Hunyuan3D-Omni shape stage with the control named, then the same 2.1 paint stage as the engine (6 views @ 512). "box d" is the depth prior as a fraction of width that set the bounding box; "d/w" is what came out. Both Hunyuan stages were timed with their models already resident; TRELLIS times are the server's wall clock per request.</p>
   </section>
 
   <section>
@@ -211,12 +238,25 @@ html = r'''<title>Forge Bake-off</title>
   </section>
 
   <section>
+    <div class="eyebrow">Bake-off 2 · 13 Sep</div>
+    <h2>Omni's bounding box fixes the depth, and over-fills sparse objects</h2>
+    <p class="lede">Hunyuan3D-Omni is the same 2.1 shape model with control inputs added. Its skeleton control is a full-body humanoid rig (no facial rig exists), so it cannot describe a face accessory; the bounding-box control can. The box is three ratios, width : height : depth, with width and height read from the cut-out and depth from a per-category prior. Every Omni shape below went through the engine's own paint stage, so only the geometry differs.</p>
+    <div class="grid2">
+      <div class="card"><h3>Mask · the box does exactly what it was for</h3><p>Asked for depth 0.5 of width, got <b>0.57</b>, in 49 s. The 2.1 engine gave 1.4 to 1.7 on four seeds and 3.9 once; this is the first result that reads as a mask rather than a head. Switch the right pane to <em>Omni, box d 0.6</em> and turn it sideways.</p></div>
+      <div class="card"><h3>Mustache and glasses · the box back-fires</h3><p>Asked for depth 0.4, got 0.53, but the model filled the volume: a white face-shaped mass now sits behind the glasses. A box says "this much volume exists" and a sparse accessory has no volume to give, so the model invents one. Thinner boxes do not help: depth 0.2 gives a flat face slab with hair on top, 0.3 a full head. All three are in the variant list.</p></div>
+      <div class="card"><h3>Car · neutral</h3><p>Asked for 2.4, got 2.46 in 40 s. The body matches the 2.1 engine's; the box added nothing the image did not already settle, and Omni put a rear spoiler on it that the image does not show.</p></div>
+      <div class="card"><h3>Head proxy · not this</h3><p>The point-cloud control with a canonical head-shaped ellipsoid (the nearest thing Omni has to a skeleton for a face) conforms the mask to the proxy: a full round head, 1.12 deep, with the shell texture smeared across a back the image never showed. It also lost watertightness (2 parts). A strong constraint for a shape we do not want.</p></div>
+    </div>
+  </section>
+
+  <section>
     <div class="eyebrow">Recommendation</div>
-    <h2>Replace TRELLIS.2 with Hunyuan3D 2.1, with a shape sanity check</h2>
+    <h2>Ship the 2.1 engine as is; add Omni's box only where a category says the object is solid</h2>
     <div class="rec">
       <p><b>On every measured axis Hunyuan wins, and on the ones that hurt today it wins outright.</b> Every export is a single closed surface, which retires the hole-filling, solidify and sliver-crack work the TRELLIS path accumulated. It never approaches the 24 GB ceiling (7.6 GB for shape, 13.8 GB for paint), so the retry ladder and the 512 fallback that produced the blobby car go away. It is faster end to end even before the TRELLIS times are discounted for the cold load and the retries. Files are smaller at the same face budget.</p>
-      <p><b>Its failure mode is different, and cheaper to catch.</b> TRELLIS fails on the surface: fragments, cracks, haze. Hunyuan fails on the reading: on a frontal image with ambiguous depth it can hallucinate what is behind, and the mask's first run did exactly that. Because the mesh is closed, the failure shows up in one number: the first run's depth-to-width ratio was 3.9 against 1.4 to 1.7 for four re-rolls. A check after the shape stage that re-rolls with a new seed when the ratio passes about 2.5 costs one extra 85 s pass, was needed once in five here, and would have caught it. TRELLIS's failures have no such single number.</p>
+      <p><b>Its failure mode is different, and cheaper to catch.</b> TRELLIS fails on the surface: fragments, cracks, haze. Hunyuan fails on the reading: on a frontal image with ambiguous depth it can hallucinate what is behind, and the mask's first run did exactly that. Because the mesh is closed, the failure shows up in one number: the first run's depth-to-width ratio was 3.9 against 1.4 to 1.7 for four re-rolls. A check after the shape stage that re-rolls with a new seed when the ratio passes 3 (a real car sits at 2.4) costs one extra 85 s pass, was needed once in five here, and would have caught it. TRELLIS's failures have no such single number.</p>
       <p><b>The one thing this page cannot decide is texture fidelity</b>, which is why the models are here to turn. Hunyuan's paint is a multi-view bake (6 views at 512, upscaled) rather than TRELLIS's per-voxel color, so it can be softer on fine print and can blend across seams; the trade is that it is complete, with no grey haze. If the paint reads as good enough on the car and the mask re-roll, switch.</p>
+      <p><b>Omni is a per-category tool, not a replacement (bake-off 2).</b> Its box control is decisive on the mask and harmful on the mustache, and the difference is whether the object fills its box. So it belongs behind a category signal the app already has in the prompt: masks, hats, helmets, vehicles get an Omni shape with a category depth prior; glasses, mustaches, hair and anything else sparse stay on the 2.1 engine with the depth re-roll. That is a second 25.7 GB set of weights and about 10 GB of GPU at inference, which fits beside the engine on a 3090 but not with everything resident at once; it can wait until the mask family is worth it.</p>
       <p><b>What the switch costs.</b> A separate environment: Hunyuan wants torch 2.5.1 (the box runs 2.6), an 8 GB venv, and about 10 GB of weights next to TRELLIS's. Same box, same 120k-face and 1024-texture budgets, same /generate contract.</p>
     </div>
     <h3 class="h3gap">Notes for the Dockerfile, learned on this box</h3>
@@ -227,7 +267,7 @@ html = r'''<title>Forge Bake-off</title>
       <li>Pin <code>setuptools&lt;81</code>: the paint stage imports <code>pkg_resources</code>, which newer setuptools removed.</li>
       <li>Apply the repo's <code>torchvision_fix</code> before importing the paint pipeline (basicsr imports a module torchvision 0.20 removed).</li>
       <li>Call the paint pipeline with <code>use_remesh=False</code>: its remesh is a quadric decimation to a hard-coded 40,000 faces, which would silently discard two thirds of the budget. Reduce to 120k after the shape stage instead, as here.</li>
-      <li>After the shape stage, measure the reduced mesh's extents and re-run the shape stage with a new seed when depth/width exceeds about 2.5 (one in five mask runs here); only then paint.</li>
+      <li>After the shape stage, measure the reduced mesh's extents and re-run the shape stage with a new seed when depth/width exceeds 3 (a real car is 2.4; one in five mask runs here tripped it); only then paint. This is what <code>engine_hunyuan.py</code> now does.</li>
       <li>Serve shape and paint from one process and keep both models resident: shape 7.6 GB and paint 13.8 GB peaks fit together in 24 GB, and the per-request cost is then the 151–169 s measured here.</li>
     </ol>
   </section>
@@ -237,7 +277,7 @@ html = r'''<title>Forge Bake-off</title>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script>window.FORGE_MODELS = __MODELS__;</script>
+<script>window.FORGE_MODELS = __MODELS__; window.FORGE_VARIANTS = __VARIANTS__;</script>
 <script>
 (function () {
   var M = window.FORGE_MODELS || {};
@@ -245,13 +285,12 @@ html = r'''<title>Forge Bake-off</title>
               hy:      { canvas: document.getElementById('cR'), status: document.getElementById('sR') } };
   var stage = document.getElementById('stage');
   var camera, controls, current = null, loaded = {}, showEdges = false, showWire = false, showTex = true, hyVariant = 'hy';
-  var variantBox = document.getElementById('variant');
+  var variantBox = document.getElementById('variant'), VARIANTS = window.FORGE_VARIANTS || {};
 
-  function b64ToBuf(b64) {
-    var bin = atob(b64), len = bin.length, bytes = new Uint8Array(len);
-    for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  function gunzip(ab) {
+    var bytes = new Uint8Array(ab);
     if (bytes[0] === 0x1f && bytes[1] === 0x8b && window.pako) { return window.pako.ungzip(bytes).buffer; }
-    return bytes.buffer;
+    return ab;
   }
   // The sandbox allows data: for images but not for fetch(); hiding createImageBitmap makes GLTFLoader use <img>.
   try { window.createImageBitmap = undefined; } catch (e) { /* ignore */ }
@@ -345,10 +384,10 @@ html = r'''<title>Forge Bake-off</title>
   }
 
   function load(tag, eng) {
-    var id = tag + '_' + eng, E = ENG[eng === 'hy2' ? 'hy' : eng];
+    var id = tag + '_' + eng, E = ENG[eng === 'trellis' ? 'trellis' : 'hy'];
     if (loaded[id]) { loaded[id].group.visible = true; applyLook(loaded[id]); setStatus(id); return; }
-    E.status.textContent = 'parsing…';
-    var loader = new THREE.GLTFLoader(), buf = b64ToBuf(M[id].b64), triedStripped = false;
+    E.status.textContent = 'loading…';
+    var loader = new THREE.GLTFLoader(), buf = null, triedStripped = false;
     var onError = function (err) {
       var msg = (err && (err.message || (err.target && err.target.src) || String(err))) || 'unknown error';
       if (!triedStripped) { triedStripped = true; E.status.textContent = 'textures blocked — geometry only…'; try { loader.parse(stripTextures(buf), '', onLoad, onError); return; } catch (e2) { msg = String(e2); } }
@@ -372,7 +411,9 @@ html = r'''<title>Forge Bake-off</title>
       if (current !== tag || (eng !== 'trellis' && eng !== hyVariant)) { group.visible = false; eg.visible = false; return; }
       applyLook(entry); setStatus(id);
     };
-    loader.parse(buf, '', onLoad, onError);
+    fetch(M[id].url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + M[id].url); return r.arrayBuffer(); })
+      .then(function (ab) { buf = gunzip(ab); E.status.textContent = 'parsing…'; loader.parse(buf, '', onLoad, onError); })
+      .catch(function (e) { E.status.textContent = 'could not fetch model: ' + String(e.message || e).slice(0, 100); console.error(e); });
   }
   function setStatus(id) {
     var entry = loaded[id], E = ENG[id.split('_')[1] === 'trellis' ? 'trellis' : 'hy'], tris = 0;
@@ -381,16 +422,16 @@ html = r'''<title>Forge Bake-off</title>
   }
   function show(tag) {
     current = tag;
-    var hasVariant = !!M[tag + '_hy2'];
-    variantBox.hidden = !hasVariant;
-    if (!hasVariant) hyVariant = 'hy';
+    var vs = VARIANTS[tag] || [['hy', '2.1 engine']];
+    variantBox.hidden = vs.length < 2;
+    if (!vs.some(function (v) { return v[0] === hyVariant; })) hyVariant = 'hy';
+    variantBox.innerHTML = vs.map(function (v) { return '<button data-v="' + v[0] + '" aria-pressed="' + (v[0] === hyVariant) + '">' + v[1] + '</button>'; }).join('');
+    variantBox.querySelectorAll('button').forEach(function (b) { b.addEventListener('click', function () { hyVariant = b.dataset.v; show(current); }); });
     var rightId = tag + '_' + hyVariant;
     Object.keys(loaded).forEach(function (id) { if (id !== tag + '_trellis' && id !== rightId) { loaded[id].group.visible = false; loaded[id].edges.visible = false; } });
     document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-pressed', String(t.dataset.tag === tag)); });
-    variantBox.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.v === hyVariant)); });
     load(tag, 'trellis'); load(tag, hyVariant);
   }
-  variantBox.querySelectorAll('button').forEach(function (b) { b.addEventListener('click', function () { hyVariant = b.dataset.v; show(current); }); });
 
   document.querySelectorAll('.tab').forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.tag); }); });
   function relook() { if (!current) return; ['trellis', hyVariant].forEach(function (e) { var en = loaded[current + '_' + e]; if (en) applyLook(en); }); }
@@ -404,6 +445,8 @@ html = r'''<title>Forge Bake-off</title>
 </script>
 '''
 html = html.replace("__TABS__", tabs_html).replace("__ROWS__", rows_html).replace("__RAW__", raw_html)
-html = html.replace("__MODELS__", json.dumps({k: {"b64": v} for k, v in models.items()}, separators=(",", ":")))
+html = html.replace("__MODELS__", json.dumps({k: {"url": v} for k, v in models.items()}, separators=(",", ":")))
+json.dump(sorted(os.listdir(MODELS_DIR)), open(os.path.join(os.path.dirname(OUT), "models_manifest.json"), "w"))
+html = html.replace("__VARIANTS__", json.dumps(VARIANT_LABELS))
 open(OUT, "w", encoding="utf-8", newline="\n").write(html)
 print(OUT, f"{os.path.getsize(OUT)/1e6:.2f} MB")

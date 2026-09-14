@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 *.pyo
 bakeoff/bake/
+bakeoff/bake2/
