@@ -33,3 +33,4 @@ timm
 torchdiffeq
 shapely
 mapbox-earcut
+# shapely + mapbox-earcut: capped plane cuts in engine_hunyuan (clip_depth / clip_base)
